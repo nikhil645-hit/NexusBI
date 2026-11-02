@@ -199,3 +199,4 @@ Physical analytical tables optimized for queries from Streamlit, dashboards, and
 | `avg_estimated_delivery_days`| NUMERIC(10,2) | Average days promised at checkout. | `23.40` |
 | `late_orders_count` | INTEGER | Number of orders delivered past estimated date. | `412` |
 | `pct_late_vs_estimated` | NUMERIC(10,2) | Percentage of orders delivered late (`late / total`). | `6.00` |
+

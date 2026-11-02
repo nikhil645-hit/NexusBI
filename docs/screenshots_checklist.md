@@ -80,3 +80,4 @@ Capture the following screenshots during your evaluation run. These provide indi
   - **Where:** Streamlit App (`http://localhost:8501`).
   - **Command entered in chat:** `DROP TABLE marts.mart_daily_sales;` or `SELECT * FROM raw.customers;`
   - **What to highlight:** Yellow/red warning banner: `🛡️ Query Rejected by Security Guardrail: Security Violation: Access to schema 'raw' is forbidden`. Proves your app cannot be hijacked.
+

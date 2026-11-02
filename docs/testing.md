@@ -27,3 +27,4 @@ This document contains the verification test cases covering every layer of the d
 | **TC-14** | Security AST | Enforced query row limit | Execute SQL without LIMIT through validator | Validator appends `LIMIT 1000` to prevent excessive cloud egress. | |
 | **TC-15** | App / BI | Streamlit conversational question answering | Click sample question in Streamlit chat UI (`http://localhost:8501`) | LLM returns safe SQL, displays data table, and renders visualization. | |
 | **TC-16** | App / BI | Single-turn automatic self-correction on syntax error | Submit prompt with ambiguous column or intentional syntax error | App re-prompts LLM with database error, self-corrects, and executes. | |
+

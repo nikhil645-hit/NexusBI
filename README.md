@@ -1,8 +1,12 @@
 # End-to-End Data Pipeline with Conversational BI (Olist E-Commerce)
 
+[![Setup Guide](https://img.shields.io/badge/Setup%20Guide-Click--by--Click%20AWS%20Runbook-brightgreen.svg)](docs/COMPLETE_SETUP_GUIDE.md)
 [![Architecture](https://img.shields.io/badge/Architecture-ELT%20%2B%20dbt%20%2B%20Airflow%20%2B%20Streamlit-blue.svg)](docs/architecture.md)
 [![Database](https://img.shields.io/badge/Warehouse-Amazon%20Redshift%20Serverless-red.svg)](docs/aws_setup.md)
 [![Orchestrator](https://img.shields.io/badge/Orchestrator-Apache%20Airflow%20(LocalExecutor)-017CEE.svg)](airflow/)
+
+> 🚀 **First time here?** Follow our master, beginner-proof guide: **[docs/COMPLETE_SETUP_GUIDE.md](docs/COMPLETE_SETUP_GUIDE.md)**.
+> It takes you click-by-click from an AWS account with credits to the complete pipeline running end-to-end!
 
 A modern, production-grade Data Engineering microproject built for college demonstration and viva defense. It extracts real-world e-commerce data from a local transactional database, loads it to an Amazon Redshift Serverless data warehouse using Airbyte, models star-schema analytics marts with dbt, orchestrates the entire workflow with Apache Airflow, and exposes a secure Conversational BI chat interface powered by an LLM (Gemini / Anthropic) with strict SQL safety validation.
 
@@ -45,13 +49,15 @@ de-project/
 │   ├── docker-compose.yml   # Postgres 16 container (port 5433)
 │   └── load_olist.py        # Python ingestion script loading Olist CSVs
 ├── docs/                    # Complete project documentation
+│   ├── COMPLETE_SETUP_GUIDE.md # Master click-by-click runbook (Zero to End-to-End)
 │   ├── architecture.md      # Pipeline architecture and component breakdown
 │   ├── aws_setup.md         # Redshift Serverless & S3 cost-effective guide (Phase 1)
 │   ├── airbyte_setup.md     # Airbyte connection & API instructions (Phase 1)
 │   ├── data_dictionary.md   # Schema reference for raw, staging, and marts (Phase 5)
 │   ├── runbook.md           # Step-by-step production runbook & teardown (Phase 5)
 │   ├── testing.md           # Test cases & validation verification (Phase 5)
-│   └── screenshots_checklist.md # Report and viva submission checklist (Phase 5)
+│   ├── screenshots_checklist.md # Report and viva submission checklist (Phase 5)
+│   └── viva_and_demo.md     # 5-minute timed demo script and 10 viva defense QA
 ├── sql/                     # Warehouse initialization scripts (Phase 1)
 │   ├── 01_schemas.sql       # Creates schemas: raw, staging, marts
 │   └── 02_users.sql         # Creates dbt and app_readonly users with RBAC

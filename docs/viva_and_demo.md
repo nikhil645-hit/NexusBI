@@ -125,3 +125,4 @@ This guide is your secret weapon for the project evaluation and viva examination
 - All warehouse-specific configuration is restricted to `dbt/olist_dbt/profiles.yml`, `app/db_helper.py`, and SQL user provisioning scripts.
 - The dbt models use ANSI standard SQL.
 - Switching to Snowflake requires only changing the dbt adapter to `dbt-snowflake`, pointing Airbyte's destination to Snowflake, and updating the connection credentials in `db_helper.py` without modifying a single line of business logic.
+

@@ -130,3 +130,4 @@ Redshift Serverless automatically pauses compute billing when no queries are run
 | **Airbyte task in Airflow fails with 401 Unauthorized** | Airbyte API Client Secret expired or mismatched | Open Airbyte UI -> Settings -> Applications -> Generate a new Client Secret -> Update `AIRBYTE_CLIENT_SECRET` in `airflow/.env`. |
 | **Streamlit displays "Query Rejected by Security Guardrail"** | User prompt attempted DDL, multi-statement, or non-marts table | Check the error message in the chat. The query was intentionally blocked by the `sqlglot` validator to protect warehouse integrity. |
 | **dbt run fails with "Relation raw.orders does not exist"** | Airbyte replication has not run yet | Trigger Airbyte sync in the UI or via Airflow so raw landing tables are physically created in Redshift first. |
+
