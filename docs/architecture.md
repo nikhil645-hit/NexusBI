@@ -73,3 +73,4 @@ Apache Airflow is the mission-critical orchestrator that coordinates dependencie
 
 ### 7. Conversational BI Application: Streamlit + LLM + SQLGlot Validator
 The presentation layer is a conversational Business Intelligence (BI) web application powered by Streamlit. Non-technical stakeholders enter business questions in plain English, which are converted to SQL queries via an LLM adapter supporting Google Gemini and Anthropic Claude. Crucially, before any generated SQL touches Redshift, it passes through a deterministic validator built with `sqlglot`. The validator enforces read-only access (single `SELECT` statement, restricted exclusively to the `marts` schema, no DML/DDL, forced `LIMIT 1000`, connecting via a dedicated `app_readonly` database role), preventing prompt injection or data leakage during live college demonstrations.
+

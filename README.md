@@ -152,3 +152,4 @@ cp .env.example .env
      2. An AST parser (`sqlglot`) guarantees exactly one `SELECT` statement, enforces `marts` schema access only, forbids DDL/DML, and caps the result set to `LIMIT 1000`.
 4. **How portable is this architecture?**
    - Warehouse-specific logic is strictly isolated in `dbt/olist_dbt/profiles.yml`, SQL user provisioning scripts, and database helpers. Migrating to Snowflake or BigQuery requires modifying only the connection profile and target dialect without rewriting business models.
+
