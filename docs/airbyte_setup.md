@@ -131,3 +131,4 @@ Airbyte OSS requires Client ID and Client Secret authentication for REST API end
 ## 7. Viva Defense Tips for Ingestion
 - **Why Airbyte instead of custom Python ETL scripts?** Custom scripts require handling schema drift, API retries, rate limiting, and network failures manually. Airbyte provides battle-tested connectors with automated retry semantics and telemetry.
 - **Why S3 Staging?** Amazon Redshift is an MPP (Massively Parallel Processing) columnar warehouse. Using `INSERT` queries row-by-row is orders of magnitude slower than dumping bulk columnar Parquet/CSV files into S3 and executing a distributed `COPY` command.
+

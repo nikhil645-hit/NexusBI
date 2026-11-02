@@ -1,0 +1,46 @@
+# ==============================================================================
+# dbt_project.yml - Olist E-Commerce dbt Project Configuration
+# ==============================================================================
+
+name: 'olist_dbt'
+version: '1.0.0'
+config-version: 2
+
+# Profile name matching profiles.yml
+profile: 'olist_dbt'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+# ------------------------------------------------------------------------------
+# Configurable Source Schema and Table Names (Rule from PROJECT.md)
+# Adjust these variables if Airbyte prefixes or alters table names in Redshift
+# ------------------------------------------------------------------------------
+vars:
+  source_schema: "raw"
+  table_customers: "customers"
+  table_orders: "orders"
+  table_order_items: "order_items"
+  table_order_payments: "order_payments"
+  table_products: "products"
+  table_category_translation: "category_translation"
+
+# ------------------------------------------------------------------------------
+# Model Materializations: Staging as Views, Marts as Physical Tables
+# ------------------------------------------------------------------------------
+models:
+  olist_dbt:
+    staging:
+      +schema: staging
+      +materialized: view
+    marts:
+      +schema: marts
+      +materialized: table

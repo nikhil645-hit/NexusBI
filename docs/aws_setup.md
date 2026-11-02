@@ -182,3 +182,4 @@ To ensure zero ongoing charges after your evaluation:
 - [ ] **Delete IAM User:** IAM -> Users -> Select `airbyte-s3-staging-user` -> **Delete**.
 - [ ] **Delete IAM Role:** IAM -> Roles -> Select `RedshiftServerlessS3Role` -> **Delete**.
 - [ ] **Delete Budget Alert:** AWS Budgets -> Select the budget -> Actions -> **Delete**.
+

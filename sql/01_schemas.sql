@@ -26,3 +26,4 @@ CREATE SCHEMA IF NOT EXISTS staging;
 -- In a viva: Explain that marts are optimized physical tables (star/snowflake schema)
 -- designed for high-performance reporting, BI tools, and LLM text-to-SQL querying.
 CREATE SCHEMA IF NOT EXISTS marts;
+

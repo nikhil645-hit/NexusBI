@@ -1,0 +1,111 @@
+# ==============================================================================
+# _staging__models.yml - Schema Definitions and Tests for Staging Views
+# ==============================================================================
+
+version: 2
+
+models:
+  - name: stg_customers
+    description: "Cleansed view of raw customer records with standardized geography"
+    columns:
+      - name: customer_id
+        description: "Primary key for customer order record"
+        tests:
+          - unique
+          - not_null
+      - name: customer_unique_id
+        description: "Unique identity of physical buyer across all orders"
+        tests:
+          - not_null
+      - name: customer_city
+        description: "Customer city in lowercase"
+      - name: customer_state
+        description: "Uppercase two-letter Brazilian state abbreviation"
+
+  - name: stg_orders
+    description: "Cleansed view of raw orders containing parsed timestamps and status"
+    columns:
+      - name: order_id
+        description: "Primary key of order transaction"
+        tests:
+          - unique
+          - not_null
+      - name: customer_id
+        description: "Foreign key referencing stg_customers"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_customers')
+              field: customer_id
+      - name: order_status
+        description: "Order lifecycle status"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['delivered', 'shipped', 'canceled', 'invoiced', 'processing', 'unavailable', 'created', 'approved']
+      - name: order_purchase_timestamp
+        description: "Timestamp when the order was placed"
+        tests:
+          - not_null
+      - name: order_purchase_date
+        description: "Extracted calendar date of purchase"
+
+  - name: stg_order_items
+    description: "Order line item details with validated pricing and freight"
+    columns:
+      - name: order_id
+        description: "Foreign key referencing stg_orders"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_orders')
+              field: order_id
+      - name: order_item_id
+        description: "Sequential line item number within order"
+        tests:
+          - not_null
+      - name: product_id
+        description: "Foreign key referencing stg_products"
+        tests:
+          - not_null
+      - name: price
+        description: "Item unit price"
+        tests:
+          - not_null
+      - name: freight_value
+        description: "Freight cost attributed to item"
+      - name: total_item_cost
+        description: "Calculated price + freight"
+
+  - name: stg_order_payments
+    description: "Cleansed payment methods and values per transaction"
+    columns:
+      - name: order_id
+        description: "Foreign key referencing stg_orders"
+        tests:
+          - not_null
+      - name: payment_sequential
+        description: "Sequence number of payment method used"
+      - name: payment_type
+        description: "Payment channel"
+        tests:
+          - not_null
+      - name: payment_value
+        description: "Monetary amount paid"
+        tests:
+          - not_null
+
+  - name: stg_products
+    description: "Enriched product dimension with translated category names"
+    columns:
+      - name: product_id
+        description: "Primary key of product"
+        tests:
+          - unique
+          - not_null
+      - name: category_name
+        description: "Translated English category name (defaults to original or 'unknown')"
+        tests:
+          - not_null
+      - name: weight_g
+        description: "Weight in grams"

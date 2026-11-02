@@ -1,0 +1,81 @@
+# ==============================================================================
+# sources.yml - Raw Ingestion Tables Definition (Written by Airbyte)
+# ==============================================================================
+
+version: 2
+
+sources:
+  - name: raw
+    description: "Raw landing schema populated from Olist PostgreSQL by Airbyte"
+    schema: "{{ var('source_schema', 'raw') }}"
+    tables:
+      - name: customers
+        identifier: "{{ var('table_customers', 'customers') }}"
+        description: "Raw customer records linking orders to unique buyer IDs and locations"
+        columns:
+          - name: customer_id
+            description: "Primary key in source representing the order-level customer identifier"
+          - name: customer_unique_id
+            description: "Unique identifier of the actual physical customer across multiple orders"
+          - name: customer_zip_code_prefix
+          - name: customer_city
+          - name: customer_state
+
+      - name: orders
+        identifier: "{{ var('table_orders', 'orders') }}"
+        description: "Raw order transaction records with lifecycles and milestone timestamps"
+        columns:
+          - name: order_id
+            description: "Primary key of the order"
+          - name: customer_id
+            description: "Foreign key linking to raw.customers"
+          - name: order_status
+            description: "Lifecycle status (e.g., delivered, shipped, canceled)"
+          - name: order_purchase_timestamp
+          - name: order_approved_at
+          - name: order_delivered_carrier_date
+          - name: order_delivered_customer_date
+          - name: order_estimated_delivery_date
+
+      - name: order_items
+        identifier: "{{ var('table_order_items', 'order_items') }}"
+        description: "Line item details for each order including prices and freight costs"
+        columns:
+          - name: order_id
+          - name: order_item_id
+          - name: product_id
+          - name: seller_id
+          - name: shipping_limit_date
+          - name: price
+          - name: freight_value
+
+      - name: order_payments
+        identifier: "{{ var('table_order_payments', 'order_payments') }}"
+        description: "Payment transactions and installment methods per order"
+        columns:
+          - name: order_id
+          - name: payment_sequential
+          - name: payment_type
+          - name: payment_installments
+          - name: payment_value
+
+      - name: products
+        identifier: "{{ var('table_products', 'products') }}"
+        description: "Product catalog attributes and dimensions"
+        columns:
+          - name: product_id
+          - name: product_category_name
+          - name: product_name_lenght
+          - name: product_description_lenght
+          - name: product_photos_qty
+          - name: product_weight_g
+          - name: product_length_cm
+          - name: product_height_cm
+          - name: product_width_cm
+
+      - name: category_translation
+        identifier: "{{ var('table_category_translation', 'category_translation') }}"
+        description: "Mapping of Brazilian Portuguese category names to English"
+        columns:
+          - name: product_category_name
+          - name: product_category_name_english
