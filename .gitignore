@@ -1,0 +1,50 @@
+# ==============================================================================
+# .gitignore - Git Ignore Rules for DE Microproject
+# Prevents committing secrets, local env files, large datasets, and virtualenvs
+# ==============================================================================
+
+# Environment variable files and secrets (Rule 1: Never commit secrets)
+.env
+.env.*
+!.env.example
+*.env
+source/.env
+airflow/.env
+secrets/
+*.pem
+*.key
+*.pfx
+
+# Large raw datasets (already downloaded or local)
+data/
+*.csv
+*.zip
+*.gz
+*.parquet
+
+# Virtual environments & Python cache
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+
+# dbt build artifacts & logs
+dbt/olist_dbt/target/
+dbt/olist_dbt/dbt_packages/
+dbt/olist_dbt/logs/
+
+# Airflow runtime logs & SQLite/pid files
+airflow/logs/
+*.pid
+
+# Operating system & IDE clutter
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
