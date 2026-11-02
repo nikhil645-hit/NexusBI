@@ -255,3 +255,4 @@ with DAG(
 
     # Execution Graph / Lineage
     task_airbyte_sync >> task_dbt_staging >> task_dbt_marts >> task_dbt_test >> task_summary
+

@@ -1,0 +1,10 @@
+# ==============================================================================
+# app/requirements.txt - Conversational BI Application Dependencies
+# ==============================================================================
+streamlit==1.37.0
+sqlglot==25.5.0
+pandas==2.2.2
+psycopg2-binary==2.9.9
+google-generativeai==0.7.2
+anthropic==0.31.1
+pytest==8.2.2
