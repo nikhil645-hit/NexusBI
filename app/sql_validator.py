@@ -129,3 +129,4 @@ def validate_and_sanitize_sql(
     # Generate sanitized SQL string
     sanitized_sql = expression.sql(dialect="redshift")
     return True, sanitized_sql, ""
+

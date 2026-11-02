@@ -208,3 +208,4 @@ def _generate_mock_results(sql: str) -> pd.DataFrame:
             "message": ["Query executed successfully."],
             "status": ["OK"],
         })
+

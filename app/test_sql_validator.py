@@ -107,3 +107,4 @@ class TestSQLValidator:
         is_valid, _, err = validate_and_sanitize_sql(sql)
         assert is_valid is False
         assert "Access to table 'secret_passwords_table' is forbidden" in err
+

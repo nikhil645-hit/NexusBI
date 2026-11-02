@@ -194,3 +194,4 @@ def get_llm_adapter() -> BaseLLMAdapter:
 
     # Fallback to Mock Adapter with a notification
     return MockLLMAdapter()
+

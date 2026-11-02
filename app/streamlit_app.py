@@ -296,3 +296,4 @@ if user_prompt:
                     "question": user_prompt,
                     "sql": sanitized_sql,
                 })
+
