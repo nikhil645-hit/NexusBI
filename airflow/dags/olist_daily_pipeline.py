@@ -8,11 +8,11 @@
 # Pipeline Flow:
 #   1. trigger_airbyte_sync:
 #      Authenticates with Airbyte REST API via Client ID & Secret, triggers
-#      sync for Olist Postgres -> Redshift connection, and polls until completion.
+#      sync for Olist Source Postgres -> Warehouse Postgres, and polls until completion.
 #   2. dbt_run_staging:
-#      Executes dbt staging views in Redshift using isolated /opt/dbt-venv.
+#      Executes dbt staging views in warehouse using isolated /opt/dbt-venv.
 #   3. dbt_run_marts:
-#      Executes dbt analytical mart tables in Redshift using /opt/dbt-venv.
+#      Executes dbt analytical mart tables in warehouse using /opt/dbt-venv.
 #   4. dbt_test:
 #      Executes all schema tests and custom non-negative singular assertions.
 #   5. pipeline_summary:
@@ -166,9 +166,9 @@ def log_pipeline_summary(**context):
     Execution Date: {exec_date}
     Orchestrator  : Apache Airflow (LocalExecutor)
     Layers Updated:
-      1. Source Ingestion  : Postgres -> Redshift 'raw' (Airbyte OSS)
-      2. Staging Models    : Redshift 'staging' views (dbt-redshift)
-      3. Analytical Marts  : Redshift 'marts' tables (dbt-redshift)
+      1. Source Ingestion  : Source Postgres (5433) -> Warehouse 'raw' (5434) (Airbyte OSS)
+      2. Staging Models    : Warehouse 'staging' views (dbt-postgres)
+      3. Analytical Marts  : Warehouse 'marts' tables (dbt-postgres)
       4. Quality Assurance : Schema & Business rule assertions PASSED (0 failures)
     Status: All downstream tables ready for Streamlit Conversational BI querying.
     ========================================================================

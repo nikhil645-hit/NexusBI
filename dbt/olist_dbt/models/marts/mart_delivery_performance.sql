@@ -13,8 +13,8 @@ with delivered_orders as (
         order_estimated_delivery_date,
         date_trunc('month', order_purchase_timestamp) as order_month,
         to_char(order_purchase_timestamp, 'YYYY-MM') as year_month,
-        datediff('day', order_purchase_timestamp, order_delivered_customer_date) as actual_delivery_days,
-        datediff('day', order_purchase_timestamp, order_estimated_delivery_date) as estimated_delivery_days,
+        (cast(order_delivered_customer_date as date) - cast(order_purchase_timestamp as date)) as actual_delivery_days,
+        (cast(order_estimated_delivery_date as date) - cast(order_purchase_timestamp as date)) as estimated_delivery_days,
         case
             when order_delivered_customer_date > order_estimated_delivery_date then 1
             else 0
@@ -35,4 +35,3 @@ select
 from delivered_orders
 group by order_month, year_month
 order by order_month desc
-

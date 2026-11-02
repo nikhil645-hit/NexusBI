@@ -1,7 +1,9 @@
-# AWS Setup Guide: Redshift Serverless & S3 (ap-south-1 Mumbai)
+# AWS Setup Guide: Redshift Serverless & S3 (Optional Cloud Version)
 
-> [!NOTE]
-> This guide is tailored for students and beginners. It details how to set up Amazon Redshift Serverless with minimal cost safeguards, configure an S3 bucket for Airbyte staging, and safely delete all cloud resources after your demo.
+> [!IMPORTANT]
+> **OPTIONAL CLOUD DEPLOYMENT:** This guide covers deploying the warehouse on Amazon Redshift Serverless in AWS `ap-south-1`.
+> The primary, 100% local, cost-free setup runs on a second local PostgreSQL 16 container (`olist-warehouse`, port `5434`).
+> For local execution without AWS, see **[LOCAL_SETUP_GUIDE.md](LOCAL_SETUP_GUIDE.md)**.
 
 ---
 

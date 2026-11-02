@@ -51,9 +51,9 @@ def validate_and_sanitize_sql(
     if not cleaned_sql:
         return False, "", "Empty SQL query provided."
 
-    # Parse SQL into AST expressions using sqlglot (Postgres/Redshift dialect)
+    # Parse SQL into AST expressions using sqlglot (Postgres dialect)
     try:
-        parsed_statements = sqlglot.parse(cleaned_sql, read="redshift")
+        parsed_statements = sqlglot.parse(cleaned_sql, read="postgres")
     except Exception as e:
         return False, "", f"SQL Syntax Error: Unable to parse SQL query ({str(e)})."
 
@@ -127,6 +127,6 @@ def validate_and_sanitize_sql(
             existing_limit.expression.set("this", str(max_limit))
 
     # Generate sanitized SQL string
-    sanitized_sql = expression.sql(dialect="redshift")
+    sanitized_sql = expression.sql(dialect="postgres")
     return True, sanitized_sql, ""
 

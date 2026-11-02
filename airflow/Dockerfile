@@ -20,12 +20,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Create isolated virtualenv for dbt-redshift and assign ownership to airflow user
+# Create isolated virtualenv for dbt-postgres and assign ownership to airflow user
 RUN python -m venv /opt/dbt-venv \
     && /opt/dbt-venv/bin/pip install --no-cache-dir --upgrade pip \
     && /opt/dbt-venv/bin/pip install --no-cache-dir \
        dbt-core==1.8.2 \
-       dbt-redshift==1.8.1 \
+       dbt-postgres==1.8.2 \
     && chown -R airflow:root /opt/dbt-venv \
     && chmod -R 775 /opt/dbt-venv
 

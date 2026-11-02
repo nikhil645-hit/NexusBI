@@ -73,7 +73,7 @@ with st.sidebar:
 
     st.markdown(f"**LLM Provider:** <span class='badge-provider'>{provider_name}</span>", unsafe_allow_html=True)
     if has_db:
-        st.markdown("**Warehouse:** <span class='badge-status-ok'>Redshift Serverless</span>", unsafe_allow_html=True)
+        st.markdown("**Warehouse:** <span class='badge-status-ok'>Local Postgres (5434)</span>", unsafe_allow_html=True)
     else:
         st.markdown("**Warehouse:** <span class='badge-status-mock'>Offline / Mock Mode</span>", unsafe_allow_html=True)
 
@@ -126,7 +126,7 @@ st.markdown("<div class='main-header'>📊 Olist Conversational BI</div>", unsaf
 st.markdown(
     "<div class='sub-header'>"
     "Ask analytical questions in natural language. Queries are translated to SQL by LLM, "
-    "verified through <code>sqlglot</code> security guardrails, and executed against Amazon Redshift marts."
+    "verified through <code>sqlglot</code> security guardrails, and executed against PostgreSQL data warehouse marts."
     "</div>",
     unsafe_allow_html=True,
 )
@@ -206,7 +206,7 @@ if user_prompt:
         schema_text = get_marts_schema_text()
         llm = get_llm_adapter()
 
-        with st.spinner("🤖 Translating question to Redshift SQL..."):
+        with st.spinner("🤖 Translating question to PostgreSQL SQL..."):
             t_start = time.time()
             raw_sql = llm.generate_sql(question=user_prompt, schema_info=schema_text)
 
@@ -233,7 +233,7 @@ if user_prompt:
             st.session_state.messages.append({"role": "assistant", "content": error_response})
         else:
             # 4. Execute Query Against Database
-            with st.spinner("⚡ Executing query against Redshift marts..."):
+            with st.spinner("⚡ Executing query against warehouse marts..."):
                 query_error = None
                 result_df = None
 
@@ -248,7 +248,7 @@ if user_prompt:
                         retry_sql_raw = llm.generate_sql(
                             question=user_prompt,
                             schema_info=schema_text,
-                            error_context=f"SQL execution error in Redshift: {query_error}",
+                            error_context=f"SQL execution error in warehouse: {query_error}",
                         )
                         is_valid_retry, sanitized_sql_retry, err_retry = validate_and_sanitize_sql(retry_sql_raw)
                         if is_valid_retry:

@@ -9,7 +9,10 @@
 !.env.example
 *.env
 source/.env
+warehouse/.env
 airflow/.env
+!warehouse/.env.example
+!airflow/.env.example
 secrets/
 *.pem
 *.key

@@ -1,0 +1,34 @@
+# ==============================================================================
+# warehouse/docker-compose.yml - Local PostgreSQL 16 Data Warehouse
+#
+# Replaces Amazon Redshift Serverless with a second local Postgres 16 container.
+#
+# Container: olist-warehouse
+# Host Port: 5434 (mapped to container port 5432)
+# Database : warehouse
+# Storage  : Named volume (warehouse-pgdata)
+# Credentials read from warehouse/.env (git-ignored)
+# ==============================================================================
+
+services:
+  warehouse:
+    image: postgres:16
+    container_name: olist-warehouse
+    environment:
+      POSTGRES_USER: ${WAREHOUSE_ADMIN_USER:-postgres}
+      POSTGRES_PASSWORD: ${WAREHOUSE_ADMIN_PASSWORD}
+      POSTGRES_DB: ${WAREHOUSE_DB:-warehouse}
+    ports:
+      - "5434:5432"
+    volumes:
+      - warehouse-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${WAREHOUSE_ADMIN_USER:-postgres} -d ${WAREHOUSE_DB:-warehouse}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  warehouse-pgdata:
+

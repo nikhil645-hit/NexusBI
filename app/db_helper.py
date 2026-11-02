@@ -1,20 +1,19 @@
 # ==============================================================================
 # app/db_helper.py - Centralized Warehouse Connection & Query Helper
 #
-# Rule from PROJECT.md: Keep ALL warehouse-specific code in dbt profiles.yml,
-# one db helper module, and docs/aws_setup.md so the warehouse can be swapped
-# (e.g. to Snowflake) later with minimal changes.
+# Connects to the local PostgreSQL 16 Data Warehouse (port 5434).
+# Strictly uses the read-only application user (WAREHOUSE_APP_USER = app_readonly).
 #
 # Security:
-#   Connects strictly using the read-only application user (REDSHIFT_APP_USER).
 #   Never prints, logs, or displays passwords in error messages or UI.
+#   Restricted strictly to the 'marts' schema.
 # ==============================================================================
 
 import os
 from typing import Optional, Dict, Any, List
 import pandas as pd
 
-# Fallback schema metadata if Redshift is offline or during offline demo
+# Fallback schema metadata if warehouse is offline or during offline demo
 STATIC_MARTS_SCHEMA = """
 Schema: marts
 
@@ -60,12 +59,12 @@ Columns:
 
 
 def is_warehouse_configured() -> bool:
-    """Checks if valid non-placeholder Redshift credentials are set in environment."""
-    host = os.getenv("REDSHIFT_HOST", "")
-    user = os.getenv("REDSHIFT_APP_USER", "")
-    pwd = os.getenv("REDSHIFT_APP_PASSWORD", "")
+    """Checks if valid non-placeholder Warehouse credentials are set in environment."""
+    host = os.getenv("WAREHOUSE_HOST") or os.getenv("REDSHIFT_HOST", "")
+    user = os.getenv("WAREHOUSE_APP_USER") or os.getenv("REDSHIFT_APP_USER", "")
+    pwd = os.getenv("WAREHOUSE_APP_PASSWORD") or os.getenv("REDSHIFT_APP_PASSWORD", "")
 
-    if not host or "placeholder" in host or "your-" in host or "123456789012" in host:
+    if not host or "placeholder" in host or "your-" in host:
         return False
     if not user or not pwd or "placeholder" in pwd:
         return False
@@ -74,22 +73,22 @@ def is_warehouse_configured() -> bool:
 
 def get_connection():
     """
-    Creates and returns a connection to Amazon Redshift using read-only credentials.
+    Creates and returns a connection to the PostgreSQL data warehouse using read-only credentials.
     Raises RuntimeError with friendly instructions if credentials are unconfigured.
     """
     if not is_warehouse_configured():
         raise RuntimeError(
-            "Amazon Redshift Serverless is not yet configured or is using placeholder credentials.\n"
-            "Please configure REDSHIFT_HOST, REDSHIFT_APP_USER, and REDSHIFT_APP_PASSWORD in your .env file."
+            "Warehouse is not yet configured or is using placeholder credentials.\n"
+            "Please configure WAREHOUSE_HOST, WAREHOUSE_APP_USER, and WAREHOUSE_APP_PASSWORD in your .env file."
         )
 
     import psycopg2
 
-    host = os.getenv("REDSHIFT_HOST")
-    port = int(os.getenv("REDSHIFT_PORT", "5439"))
-    db = os.getenv("REDSHIFT_DB", "dev")
-    user = os.getenv("REDSHIFT_APP_USER", "app_readonly")
-    password = os.getenv("REDSHIFT_APP_PASSWORD")
+    host = os.getenv("WAREHOUSE_HOST") or os.getenv("REDSHIFT_HOST", "localhost")
+    port = int(os.getenv("WAREHOUSE_PORT") or os.getenv("REDSHIFT_PORT", "5434"))
+    db = os.getenv("WAREHOUSE_DB") or os.getenv("REDSHIFT_DB", "warehouse")
+    user = os.getenv("WAREHOUSE_APP_USER") or os.getenv("REDSHIFT_APP_USER", "app_readonly")
+    password = os.getenv("WAREHOUSE_APP_PASSWORD") or os.getenv("REDSHIFT_APP_PASSWORD", "")
 
     try:
         conn = psycopg2.connect(
@@ -107,7 +106,7 @@ def get_connection():
         err_msg = str(e)
         if password and password in err_msg:
             err_msg = err_msg.replace(password, "******")
-        raise RuntimeError(f"Failed to connect to Redshift warehouse: {err_msg}")
+        raise RuntimeError(f"Failed to connect to data warehouse: {err_msg}")
 
 
 def get_marts_schema_text() -> str:
@@ -146,8 +145,8 @@ def get_marts_schema_text() -> str:
 
 def execute_marts_query(sanitized_sql: str) -> pd.DataFrame:
     """
-    Executes a sanitized read-only query against Redshift.
-    If Redshift is not connected, provides simulated sample data for testing.
+    Executes a sanitized read-only query against the data warehouse.
+    If warehouse is not connected, provides simulated sample data for testing.
     """
     if not is_warehouse_configured():
         return _generate_mock_results(sanitized_sql)
@@ -159,7 +158,7 @@ def execute_marts_query(sanitized_sql: str) -> pd.DataFrame:
     except Exception as e:
         err_str = str(e)
         # Never leak passwords
-        pwd = os.getenv("REDSHIFT_APP_PASSWORD", "")
+        pwd = os.getenv("WAREHOUSE_APP_PASSWORD") or os.getenv("REDSHIFT_APP_PASSWORD", "")
         if pwd and pwd in err_str:
             err_str = err_str.replace(pwd, "******")
         raise RuntimeError(err_str)
@@ -169,8 +168,8 @@ def execute_marts_query(sanitized_sql: str) -> pd.DataFrame:
 
 def _generate_mock_results(sql: str) -> pd.DataFrame:
     """
-    Generates realistic synthetic results for testing when Redshift is offline.
-    Allows testing UI layout, charts, and table rendering with zero AWS cost.
+    Generates realistic synthetic results for testing when warehouse is offline.
+    Allows testing UI layout, charts, and table rendering with zero setup.
     """
     sql_lower = sql.lower()
     if "mart_top_products" in sql_lower:
@@ -208,4 +207,3 @@ def _generate_mock_results(sql: str) -> pd.DataFrame:
             "message": ["Query executed successfully."],
             "status": ["OK"],
         })
-

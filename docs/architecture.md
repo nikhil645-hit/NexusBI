@@ -2,51 +2,49 @@
 
 ## Architecture Diagram
 
-The diagram below illustrates the end-to-end data flow, execution boundaries, and orchestration mechanisms across all layers of the project.
+The diagram below illustrates the end-to-end data flow, execution boundaries, and orchestration mechanisms across all layers of the project running **100% locally with zero cloud costs**.
 
 ```mermaid
 flowchart LR
     subgraph S1["1. Source Layer (Local)"]
-        PG["Postgres 16 Container<br/>(Olist E-Commerce DB)<br/>Port 5433"]
+        PG["Postgres 16 Source<br/>(Olist E-Commerce DB)<br/>Port 5433"]
     end
 
     subgraph S2["2. Ingestion & EL Layer (Local OSS)"]
         AB["Airbyte OSS<br/>(abctl / Web UI 8000)<br/>Standard Replication"]
     end
 
-    subgraph S3["3. Cloud Warehouse (AWS ap-south-1)"]
-        S3Bucket["AWS S3 Bucket<br/>(Airbyte Staging Area)"]
-        RS_RAW["Redshift: raw schema<br/>(Airbyte Target Tables)"]
-        RS_STG["Redshift: staging schema<br/>(Cleaned Views)"]
-        RS_MARTS["Redshift: marts schema<br/>(Analytics Tables)"]
+    subgraph S3["3. Data Warehouse (Local Postgres / Cloud Option)"]
+        WH_RAW["Warehouse: raw schema<br/>(Airbyte Target Tables)"]
+        WH_STG["Warehouse: staging schema<br/>(Cleaned Views)"]
+        WH_MARTS["Warehouse: marts schema<br/>(Analytics Tables)"]
         
-        S3Bucket --> RS_RAW
-        RS_RAW --> RS_STG
-        RS_STG --> RS_MARTS
+        WH_RAW --> WH_STG
+        WH_STG --> WH_MARTS
     end
 
     subgraph S4["4. Orchestration (Docker / Local)"]
         AF["Apache Airflow<br/>(LocalExecutor / Scheduler)<br/>Port 8080"]
-        DBT["dbt-redshift<br/>(Isolated /opt/dbt-venv)"]
+        DBT["dbt-postgres<br/>(Isolated /opt/dbt-venv)"]
         
         AF -.->|"1. Triggers Sync via REST API"| AB
         AF -.->|"2. Executes Run & Tests"| DBT
     end
 
-    subgraph S5["5. Analytics & BI Layer (Local / Cloud)"]
+    subgraph S5["5. Analytics & BI Layer (Local)"]
         ST["Streamlit Chat App<br/>(Conversational BI)<br/>Port 8501"]
-        LLM["LLM Service<br/>(Gemini / Anthropic)"]
+        LLM["LLM Service<br/>(Gemini / Anthropic / Mock)"]
         VAL["SQLGlot Validator<br/>(Single SELECT, Marts Only, LIMIT)"]
         
         ST <-->|"Prompt / SQL"| LLM
         ST --> VAL
-        VAL -->|"Execute Safe SQL"| RS_MARTS
+        VAL -->|"Execute Safe SQL"| WH_MARTS
     end
 
     PG -->|"Read Raw Tables"| AB
-    AB -->|"Staged COPY"| S3Bucket
-    DBT -->|"Build Views"| RS_STG
-    DBT -->|"Build Tables & Run Tests"| RS_MARTS
+    AB -->|"Replicate to Port 5434"| WH_RAW
+    DBT -->|"Build Views"| WH_STG
+    DBT -->|"Build Tables & Run Tests"| WH_MARTS
 ```
 
 ---

@@ -1,25 +1,22 @@
 # ==============================================================================
-# profiles.yml - Warehouse Connection Profile for dbt-redshift
-# All credentials are strictly read from environment variables (.env).
+# profiles.yml - Warehouse Connection Profile for dbt-postgres
+# All credentials are read from environment variables (.env).
 #
-# In a viva: Explain that isolating warehouse connection details here allows
-# swapping the data warehouse (e.g., to Snowflake or BigQuery) with zero changes
-# to the underlying SQL business logic models.
+# In a viva: Explain that dbt isolates warehouse connection details here,
+# allowing our pipeline to run 100% locally on Postgres without cloud dependencies.
 # ==============================================================================
 
 olist_dbt:
   target: dev
   outputs:
     dev:
-      type: redshift
-      host: "{{ env_var('REDSHIFT_HOST', 'localhost') }}"
-      port: {{ env_var('REDSHIFT_PORT', '5439') | as_number }}
-      user: "{{ env_var('REDSHIFT_DBT_USER', 'dbt_user') }}"
-      password: "{{ env_var('REDSHIFT_DBT_PASSWORD', 'placeholder_dbt_password') }}"
-      dbname: "{{ env_var('REDSHIFT_DB', 'dev') }}"
+      type: postgres
+      host: "{{ env_var('WAREHOUSE_HOST', 'localhost') }}"
+      port: {{ env_var('WAREHOUSE_PORT', '5434') | as_number }}
+      user: "{{ env_var('WAREHOUSE_DBT_USER', 'dbt_user') }}"
+      password: "{{ env_var('WAREHOUSE_DBT_PASSWORD', 'dbt_user_password') }}"
+      dbname: "{{ env_var('WAREHOUSE_DB', 'warehouse') }}"
       schema: "{{ env_var('DBT_DEFAULT_SCHEMA', 'staging') }}"
       threads: 4
       keepalives_idle: 240
       connect_timeout: 30
-      ra3_node: false
-

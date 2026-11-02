@@ -1,10 +1,10 @@
-# The Complete, Beginner-Proof Setup Guide
+# The Complete Setup Guide (Optional Cloud Version: AWS Redshift)
 ## End-to-End Data Pipeline with Amazon Redshift Serverless, dbt, Airbyte, Airflow & Streamlit
 
 > [!IMPORTANT]
-> **Who this is for:** A beginner data engineer on Windows 11 + WSL Ubuntu (`~/de-project`, 16 GB RAM, Docker Desktop) with an AWS account and promotional credits (~$120).
-> **Goal:** Take you step-by-step from zero cloud infrastructure to a fully orchestrated, green, end-to-end data pipeline with Conversational BI.
-> **Safety:** Follow every cost guardrail and security rule. Zero private secrets are committed or hardcoded.
+> **OPTIONAL CLOUD VERSION:** This document is the comprehensive setup guide for deploying to **AWS Redshift Serverless**.
+> If you are running the project **100% locally with NO AWS**, use **[LOCAL_SETUP_GUIDE.md](LOCAL_SETUP_GUIDE.md)** instead.
+> The local setup replaces Redshift with a second local Postgres 16 container (`olist-warehouse`, port `5434`), requiring zero cloud spend and zero AWS setup.
 
 ---
 
@@ -1090,3 +1090,4 @@ After your college evaluation and viva presentation are finished, delete all clo
 | **24**| `Streamlit chart fails to render or shows empty box` | Query returned 0 rows or non-numeric columns | Check the generated SQL in the expander. Rephrase the question to target non-empty date ranges or categories. |
 | **25**| `AWS billing shows unexpected S3 storage fees` | Staging objects were not purged automatically | Ensure S3 bucket lifecycle rule is active (Part 1.2) and Airbyte destination setting **Purge Staging Files** is set to `Yes`. |
 | **26**| `dbt test fails: relationships constraint between orders and customers` | Incomplete raw dataset loaded into Postgres | Verify that all 6 CSV files were loaded without errors via `python source/load_olist.py`. |
+

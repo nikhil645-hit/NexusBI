@@ -22,7 +22,7 @@ clean-targets:
 
 # ------------------------------------------------------------------------------
 # Configurable Source Schema and Table Names (Rule from PROJECT.md)
-# Adjust these variables if Airbyte prefixes or alters table names in Redshift
+# Adjust these variables if Airbyte prefixes or alters table names in the warehouse
 # ------------------------------------------------------------------------------
 vars:
   source_schema: "raw"
