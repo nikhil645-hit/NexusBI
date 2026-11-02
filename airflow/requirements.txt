@@ -1,0 +1,6 @@
+# ==============================================================================
+# airflow/requirements.txt - Additional Python dependencies for Airflow
+# Pinned versions to ensure reproducibility
+# ==============================================================================
+requests==2.32.3
+pydantic==2.8.2

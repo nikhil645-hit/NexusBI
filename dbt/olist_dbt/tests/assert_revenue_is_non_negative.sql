@@ -13,3 +13,4 @@ select
 from {{ ref('mart_daily_sales') }}
 where total_revenue < 0
    or avg_order_value < 0
+

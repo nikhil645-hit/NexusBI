@@ -22,3 +22,4 @@ olist_dbt:
       keepalives_idle: 240
       connect_timeout: 30
       ra3_node: false
+

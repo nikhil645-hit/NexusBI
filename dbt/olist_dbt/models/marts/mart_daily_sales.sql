@@ -33,3 +33,4 @@ daily_metrics as (
 
 select * from daily_metrics
 order by sales_date desc
+

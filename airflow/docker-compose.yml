@@ -1,0 +1,115 @@
+# ==============================================================================
+# airflow/docker-compose.yml - Lightweight LocalExecutor Airflow Stack
+#
+# Designed specifically for a 16 GB host machine running alongside Airbyte.
+# Uses LocalExecutor (no Redis, no Celery workers, no Flower) to stay well
+# within our 10 GB Docker RAM budget.
+# ==============================================================================
+
+version: '3.8'
+
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: olist-airflow:2.9.3
+  env_file:
+    - .env
+  environment:
+    &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD:-airflow}@postgres/airflow
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY:-46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqnzq8=}
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS: 'false'
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'false'
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: 'false'
+    AIRFLOW_UID: ${AIRFLOW_UID:-50000}
+    # Pass warehouse & Airbyte environment variables through to tasks
+    REDSHIFT_HOST: ${REDSHIFT_HOST}
+    REDSHIFT_PORT: ${REDSHIFT_PORT:-5439}
+    REDSHIFT_DB: ${REDSHIFT_DB:-dev}
+    REDSHIFT_DBT_USER: ${REDSHIFT_DBT_USER:-dbt_user}
+    REDSHIFT_DBT_PASSWORD: ${REDSHIFT_DBT_PASSWORD}
+    AIRBYTE_API_URL: ${AIRBYTE_API_URL:-http://host.docker.internal:8000/api/v1}
+    AIRBYTE_CLIENT_ID: ${AIRBYTE_CLIENT_ID}
+    AIRBYTE_CLIENT_SECRET: ${AIRBYTE_CLIENT_SECRET}
+    AIRBYTE_CONNECTION_ID: ${AIRBYTE_CONNECTION_ID}
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ../dbt:/opt/airflow/dbt
+    - ./logs:/opt/airflow/logs
+  extra_hosts:
+    # Allows container to reach host machine services (Airbyte OSS on port 8000)
+    - "host.docker.internal:host-gateway"
+  user: "${AIRFLOW_UID:-50000}:0"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: airflow-postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: ${AIRFLOW_DB_PASSWORD:-airflow}
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  airflow-init:
+    <<: *airflow-common
+    container_name: airflow-init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate && \
+        airflow users create \
+          --username admin \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@example.com \
+          --password admin || true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: airflow-webserver
+    command: webserver
+    ports:
+      - "8080:8080"
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: airflow-scheduler
+    command: scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  airflow-pgdata:

@@ -37,3 +37,4 @@ customer_orders as (
 
 select * from customer_orders
 order by total_spend desc
+

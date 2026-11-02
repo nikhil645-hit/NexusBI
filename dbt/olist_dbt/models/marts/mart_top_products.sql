@@ -47,3 +47,4 @@ ranked_products as (
 
 select * from ranked_products
 order by revenue_rank asc
+
