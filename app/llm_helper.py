@@ -18,16 +18,37 @@ from typing import Optional
 
 import yaml
 
+try:
+    import streamlit as st
+
+    _cache_resource = st.cache_resource
+except Exception:
+
+    def _cache_resource(fn):
+        return fn
+
+
 _SEMANTIC_LAYER_PATH = Path(__file__).resolve().parent / "semantic_layer.yaml"
+
+
+@_cache_resource
+def load_semantic_layer_data() -> dict:
+    """Loads and caches semantic_layer.yaml data using st.cache_resource."""
+    if not _SEMANTIC_LAYER_PATH.exists():
+        return {}
+    try:
+        with open(_SEMANTIC_LAYER_PATH, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    except Exception:
+        return {}
 
 
 def get_semantic_context() -> str:
     """Loads semantic layer metrics and canonical few-shot examples for LLM context."""
-    if not _SEMANTIC_LAYER_PATH.exists():
+    data = load_semantic_layer_data()
+    if not data:
         return ""
     try:
-        with open(_SEMANTIC_LAYER_PATH, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
         lines = ["\nBUSINESS METRIC DEFINITIONS & FORMULAS:"]
         for name, info in data.get("metrics", {}).items():
             lines.append(f"- {name.replace('_', ' ').title()}: {info['formula']} (Table: {info['table']}) - {info['description']}")

@@ -20,6 +20,24 @@ from dotenv import load_dotenv
 # Suppress DBAPI2 user warning for pandas read_sql_query with psycopg2
 warnings.filterwarnings("ignore", category=UserWarning, module="pandas")
 
+# Caching helpers with safe fallback when running outside Streamlit
+try:
+    import streamlit as st
+
+    _cache_resource = st.cache_resource
+    _cache_data = st.cache_data
+except Exception:
+
+    def _cache_resource(fn):
+        return fn
+
+    def _cache_data(**kwargs):
+        def dec(fn):
+            return fn
+
+        return dec
+
+
 # Load environment variables from .env
 _dotenv_path = Path(__file__).resolve().parent.parent / ".env"
 if _dotenv_path.exists():
@@ -54,6 +72,13 @@ def _get_config_value(keys: Union[List[str], str], default: str = "") -> str:
         pass
 
     return default
+
+
+def is_demo_mode() -> bool:
+    """Checks if DEMO_MODE=1 is explicitly set in environment or st.secrets."""
+    val = _get_config_value(["DEMO_MODE"], "0")
+    return val.strip().lower() in ("1", "true", "yes", "on")
+
 
 # Fallback schema metadata if warehouse is offline or during offline demo
 STATIC_MARTS_SCHEMA = """
@@ -111,19 +136,62 @@ def is_warehouse_configured() -> bool:
     return True
 
 
-def get_connection():
+class DBEngine:
     """
-    Creates and returns a connection to the PostgreSQL data warehouse using read-only credentials.
-    Enforces server-side statement_timeout (default 10s) and search_path=marts.
-    Raises RuntimeError with friendly instructions if credentials are unconfigured.
+    Managed Database Connection Provider with thread safety, auto-reconnect,
+    and rollback on error. Cached as an application-level resource.
     """
-    if not is_warehouse_configured():
-        raise RuntimeError(
-            "Warehouse is not yet configured or is using placeholder credentials.\n"
-            "Please configure DB_HOST, DB_USER, and DB_PASSWORD (or NEON_* / WAREHOUSE_*) in your .env or Streamlit Secrets."
-        )
 
-    import psycopg2
+    def __init__(self, host: str, port: int, db: str, user: str, password: str, sslmode: str, statement_timeout_ms: int):
+        self.host = host
+        self.port = port
+        self.db = db
+        self.user = user
+        self.password = password
+        self.sslmode = sslmode
+        self.statement_timeout_ms = statement_timeout_ms
+        self._conn = None
+
+    def _create_connection(self):
+        import psycopg2
+
+        conn = psycopg2.connect(
+            host=self.host,
+            port=self.port,
+            dbname=self.db,
+            user=self.user,
+            password=self.password,
+            sslmode=self.sslmode,
+            connect_timeout=15,
+            options=f"-c search_path=marts -c statement_timeout={self.statement_timeout_ms}",
+        )
+        with conn.cursor() as cur:
+            cur.execute(f"SET statement_timeout = {self.statement_timeout_ms};")
+        conn.commit()
+        return conn
+
+    def get_connection(self):
+        if self._conn is None or getattr(self._conn, "closed", 1) != 0:
+            self._conn = self._create_connection()
+        else:
+            try:
+                self._conn.rollback()
+            except Exception:
+                try:
+                    self._conn.close()
+                except Exception:
+                    pass
+                self._conn = self._create_connection()
+        return self._conn
+
+
+@_cache_resource
+def get_db_engine() -> DBEngine:
+    """Initializes and caches the PostgreSQL connection engine using st.cache_resource."""
+    if not is_warehouse_configured():
+        raise ConnectionError(
+            "Database not connected. Please configure DB_HOST, DB_USER, and DB_PASSWORD (or NEON_* / WAREHOUSE_*) in your .env or Streamlit Secrets."
+        )
 
     host = _get_config_value(["DB_HOST", "NEON_HOST", "WAREHOUSE_HOST", "REDSHIFT_HOST"], "localhost")
     default_port = "5432" if ("neon.tech" in host or "amazonaws.com" in host) else "5434"
@@ -135,30 +203,48 @@ def get_connection():
 
     default_sslmode = "require" if ("neon.tech" in host or "amazonaws.com" in host) else "prefer"
     sslmode = _get_config_value(["DB_SSLMODE", "NEON_SSLMODE", "WAREHOUSE_SSLMODE"], default_sslmode)
-    statement_timeout_ms = int(_get_config_value(["STATEMENT_TIMEOUT_MS"], "30000"))
+    # Reasonable statement_timeout <= 15s per hardening requirements
+    statement_timeout_ms = min(int(_get_config_value(["STATEMENT_TIMEOUT_MS"], "15000")), 15000)
 
     try:
-        conn = psycopg2.connect(
+        engine = DBEngine(
             host=host,
             port=port,
-            dbname=db,
+            db=db,
             user=user,
             password=password,
             sslmode=sslmode,
-            connect_timeout=15,
-            options=f"-c search_path=marts -c statement_timeout={statement_timeout_ms}",
+            statement_timeout_ms=statement_timeout_ms,
         )
-        # Explicitly enforce statement_timeout on the session
-        with conn.cursor() as cur:
-            cur.execute(f"SET statement_timeout = {statement_timeout_ms};")
-        conn.commit()
-        return conn
+        return engine
     except Exception as e:
-        # Sanitize error to prevent credential leaks
         err_msg = str(e)
         if password and password in err_msg:
             err_msg = err_msg.replace(password, "******")
-        raise RuntimeError(f"Failed to connect to data warehouse: {err_msg}")
+        raise ConnectionError(f"Database not connected: {err_msg}")
+
+
+def get_connection():
+    """Returns an active database connection from the cached DBEngine."""
+    engine = get_db_engine()
+    return engine.get_connection()
+
+
+@_cache_data(ttl=300)
+def is_database_live() -> bool:
+    """
+    Checks whether the data warehouse is actively reachable.
+    Cached for 300 seconds to prevent querying the database on every rerun.
+    """
+    if not is_warehouse_configured():
+        return False
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1;")
+        return True
+    except Exception:
+        return False
 
 
 def _fetch_dataframe(conn, sql: str) -> pd.DataFrame:
@@ -202,7 +288,6 @@ def get_marts_schema_text() -> str:
         ORDER BY table_name, ordinal_position;
         """
         df = _fetch_dataframe(conn, query)
-        conn.close()
 
         if df.empty:
             return STATIC_MARTS_SCHEMA
@@ -222,30 +307,42 @@ def get_marts_schema_text() -> str:
 def execute_marts_query(sanitized_sql: str) -> pd.DataFrame:
     """
     Executes a sanitized read-only query against the data warehouse.
-    If warehouse is not connected, provides simulated sample data for testing.
+    If warehouse is not connected or unreachable:
+      - Uses mock data ONLY if DEMO_MODE=1 is set.
+      - Otherwise, raises ConnectionError("Database not connected").
     """
     if not is_warehouse_configured():
-        return _generate_mock_results(sanitized_sql)
+        if is_demo_mode():
+            return _generate_mock_results(sanitized_sql)
+        raise ConnectionError("Database not connected. Please configure warehouse credentials or enable DEMO_MODE=1.")
 
-    conn = get_connection()
+    try:
+        conn = get_connection()
+    except Exception as e:
+        if is_demo_mode():
+            return _generate_mock_results(sanitized_sql)
+        err_msg = str(e)
+        pwd = _get_config_value(["DB_PASSWORD", "NEON_RO_PASSWORD", "NEON_PASSWORD", "WAREHOUSE_APP_PASSWORD", "REDSHIFT_APP_PASSWORD"], "")
+        if pwd and pwd in err_msg:
+            err_msg = err_msg.replace(pwd, "******")
+        raise ConnectionError(f"Database not connected: {err_msg}")
+
     try:
         df = _fetch_dataframe(conn, sanitized_sql)
         return df
     except Exception as e:
         err_str = str(e)
-        # Never leak passwords
-        pwd = os.getenv("WAREHOUSE_APP_PASSWORD") or os.getenv("REDSHIFT_APP_PASSWORD", "")
+        pwd = _get_config_value(["DB_PASSWORD", "NEON_RO_PASSWORD", "NEON_PASSWORD", "WAREHOUSE_APP_PASSWORD", "REDSHIFT_APP_PASSWORD"], "")
         if pwd and pwd in err_str:
             err_str = err_str.replace(pwd, "******")
+        if is_demo_mode():
+            return _generate_mock_results(sanitized_sql)
         raise RuntimeError(err_str)
-    finally:
-        conn.close()
 
 
 def _generate_mock_results(sql: str) -> pd.DataFrame:
     """
-    Generates realistic synthetic results for testing when warehouse is offline.
-    Allows testing UI layout, charts, and table rendering with zero setup.
+    Generates realistic synthetic results for testing when DEMO_MODE=1 is explicitly set.
     """
     sql_lower = sql.lower()
     if "mart_top_products" in sql_lower:
@@ -281,15 +378,34 @@ def _generate_mock_results(sql: str) -> pd.DataFrame:
             "pct_late_vs_estimated": [6.00, 5.98, 5.00, 4.49],
         })
     elif "mart_customer_summary" in sql_lower:
-        return pd.DataFrame({
-            "customer_unique_id": ["cust_001", "cust_002", "cust_003", "cust_004", "cust_005"],
-            "customer_city": ["sao paulo", "rio de janeiro", "belo horizonte", "porto alegre", "curitiba"],
-            "customer_state": ["SP", "RJ", "MG", "RS", "PR"],
-            "total_orders": [4, 3, 2, 2, 1],
-            "total_spend": [5202.95, 3824.09, 2585.33, 1750.38, 983.08],
-            "first_order_date": ["2017-02-15 10:00:00", "2017-04-10 12:30:00", "2017-06-20 09:15:00", "2017-08-05 14:00:00", "2018-01-12 11:20:00"],
-            "last_order_date": ["2018-08-10 16:45:00", "2018-07-22 18:20:00", "2018-05-30 14:10:00", "2018-06-15 10:05:00", "2018-01-12 11:20:00"],
-        })
+        if "count(*)" in sql_lower and "total_buyers" in sql_lower:
+            return pd.DataFrame({
+                "total_buyers": [94989],
+                "total_customer_spend": [15737667.52],
+                "avg_spend_per_buyer": [165.68],
+                "repeat_buyers": [2887],
+                "repeat_rate": [3.04],
+            })
+        elif "group by customer_state" in sql_lower:
+            return pd.DataFrame({
+                "customer_state": ["SP", "RJ", "MG", "RS", "PR", "SC", "BA", "DF", "ES", "GO"],
+                "total_spend": [5842880.00, 2125000.00, 1850000.00, 1020000.00, 890000.00, 650000.00, 620000.00, 410000.00, 390000.00, 380000.00],
+            })
+        elif "group by customer_city" in sql_lower:
+            return pd.DataFrame({
+                "customer_city": ["sao paulo", "rio de janeiro", "belo horizonte", "brasilia", "curitiba", "campinas", "porto alegre", "salvador", "guarulhos", "sao bernardo do campo"],
+                "total_spend": [2842880.00, 1125000.00, 850000.00, 620000.00, 490000.00, 350000.00, 320000.00, 290000.00, 250000.00, 210000.00],
+            })
+        else:
+            return pd.DataFrame({
+                "customer_unique_id": ["cust_001", "cust_002", "cust_003", "cust_004", "cust_005"],
+                "customer_city": ["sao paulo", "rio de janeiro", "belo horizonte", "porto alegre", "curitiba"],
+                "customer_state": ["SP", "RJ", "MG", "RS", "PR"],
+                "total_orders": [4, 3, 2, 2, 1],
+                "total_spend": [5202.95, 3824.09, 2585.33, 1750.38, 983.08],
+                "first_order_date": ["2017-02-15 10:00:00", "2017-04-10 12:30:00", "2017-06-20 09:15:00", "2017-08-05 14:00:00", "2018-01-12 11:20:00"],
+                "last_order_date": ["2018-08-10 16:45:00", "2018-07-22 18:20:00", "2018-05-30 14:10:00", "2018-06-15 10:05:00", "2018-01-12 11:20:00"],
+            })
     else:
         return pd.DataFrame({
             "message": ["Query executed successfully."],

@@ -4,8 +4,8 @@
 # Generates and renders full-screen, production-grade analytical dashboards
 # for Sales, Logistics/Delivery, Customers, Product Catalog, and 360 Overview.
 #
-# Connects directly to the curated marts schema on Cloud PostgreSQL (Neon / RDS).
-# Works locally (localhost:8501) and on Streamlit Community Cloud.
+# Connects directly to the curated marts schema on Cloud PostgreSQL (Neon / Local).
+# Uses st.cache_data(ttl=600) for query result caching.
 # ==============================================================================
 
 import pandas as pd
@@ -13,9 +13,21 @@ import streamlit as st
 
 from app.db_helper import execute_marts_query
 
+# Streamlit caching helper with fallback for non-streamlit execution
+try:
+    _cache_data = st.cache_data
+except Exception:
 
+    def _cache_data(**kwargs):
+        def dec(fn):
+            return fn
+
+        return dec
+
+
+@_cache_data(ttl=600)
 def fetch_sales_data() -> pd.DataFrame:
-    """Fetches daily sales metrics from marts.mart_daily_sales."""
+    """Fetches daily sales metrics from marts.mart_daily_sales (cached for 10m)."""
     sql = """
     SELECT
         sales_date,
@@ -30,6 +42,7 @@ def fetch_sales_data() -> pd.DataFrame:
     return execute_marts_query(sql)
 
 
+@_cache_data(ttl=600)
 def fetch_delivery_data() -> pd.DataFrame:
     """Fetches monthly logistics and delivery SLA metrics from marts.mart_delivery_performance."""
     sql = """
@@ -46,9 +59,72 @@ def fetch_delivery_data() -> pd.DataFrame:
     return execute_marts_query(sql)
 
 
-def fetch_customer_data() -> pd.DataFrame:
-    """Fetches buyer and geographic aggregations from marts.mart_customer_summary."""
+@_cache_data(ttl=600)
+def fetch_customer_kpis() -> pd.DataFrame:
+    """Fetches high-level buyer aggregates computed in SQL (1 row, <1s)."""
     sql = """
+    SELECT
+        COUNT(*) AS total_buyers,
+        ROUND(SUM(total_spend)::numeric, 2) AS total_customer_spend,
+        ROUND(AVG(total_spend)::numeric, 2) AS avg_spend_per_buyer,
+        COUNT(*) FILTER (WHERE total_orders > 1) AS repeat_buyers,
+        ROUND((COUNT(*) FILTER (WHERE total_orders > 1) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 2) AS repeat_rate
+    FROM marts.mart_customer_summary;
+    """
+    return execute_marts_query(sql)
+
+
+@_cache_data(ttl=600)
+def fetch_customer_state_spend(limit: int = 10) -> pd.DataFrame:
+    """Fetches top Brazilian states by revenue aggregated in SQL (10 rows)."""
+    sql = f"""
+    SELECT
+        customer_state,
+        ROUND(SUM(total_spend)::numeric, 2) AS total_spend
+    FROM marts.mart_customer_summary
+    GROUP BY customer_state
+    ORDER BY total_spend DESC
+    LIMIT {limit};
+    """
+    return execute_marts_query(sql)
+
+
+@_cache_data(ttl=600)
+def fetch_customer_city_spend(limit: int = 10) -> pd.DataFrame:
+    """Fetches top Brazilian cities by revenue aggregated in SQL (10 rows)."""
+    sql = f"""
+    SELECT
+        customer_city,
+        ROUND(SUM(total_spend)::numeric, 2) AS total_spend
+    FROM marts.mart_customer_summary
+    GROUP BY customer_city
+    ORDER BY total_spend DESC
+    LIMIT {limit};
+    """
+    return execute_marts_query(sql)
+
+
+@_cache_data(ttl=600)
+def fetch_customer_vip_leaderboard(limit: int = 15) -> pd.DataFrame:
+    """Fetches top VIP customers ordered by total spend in SQL (15 rows)."""
+    sql = f"""
+    SELECT
+        customer_unique_id,
+        customer_city,
+        customer_state,
+        total_orders,
+        total_spend
+    FROM marts.mart_customer_summary
+    ORDER BY total_spend DESC
+    LIMIT {limit};
+    """
+    return execute_marts_query(sql)
+
+
+@_cache_data(ttl=600)
+def fetch_customer_data(limit: int = 100) -> pd.DataFrame:
+    """Fetches buyer and geographic sample from marts.mart_customer_summary."""
+    sql = f"""
     SELECT
         customer_unique_id,
         customer_city,
@@ -58,14 +134,16 @@ def fetch_customer_data() -> pd.DataFrame:
         first_order_date,
         last_order_date
     FROM marts.mart_customer_summary
-    ORDER BY total_spend DESC;
+    ORDER BY total_spend DESC
+    LIMIT {limit};
     """
     return execute_marts_query(sql)
 
 
-def fetch_product_data() -> pd.DataFrame:
+@_cache_data(ttl=600)
+def fetch_product_data(limit: int = 100) -> pd.DataFrame:
     """Fetches catalog and category leaderboard from marts.mart_top_products."""
-    sql = """
+    sql = f"""
     SELECT
         product_id,
         category_name,
@@ -73,7 +151,8 @@ def fetch_product_data() -> pd.DataFrame:
         total_revenue,
         revenue_rank
     FROM marts.mart_top_products
-    ORDER BY revenue_rank ASC;
+    ORDER BY revenue_rank ASC
+    LIMIT {limit};
     """
     return execute_marts_query(sql)
 
@@ -88,6 +167,9 @@ def render_sales_dashboard():
     with st.spinner("⚡ Loading live sales data from data warehouse..."):
         try:
             df = fetch_sales_data()
+        except ConnectionError as ce:
+            st.error(f"🚨 {ce}")
+            return
         except Exception as e:
             st.error(f"Failed to load sales data from warehouse: {e}")
             return
@@ -208,6 +290,9 @@ def render_delivery_dashboard():
     with st.spinner("⚡ Loading logistics data from data warehouse..."):
         try:
             df = fetch_delivery_data()
+        except ConnectionError as ce:
+            st.error(f"🚨 {ce}")
+            return
         except Exception as e:
             st.error(f"Failed to load delivery data from warehouse: {e}")
             return
@@ -261,7 +346,7 @@ def render_delivery_dashboard():
 
 
 # ------------------------------------------------------------------------------
-# 3. Complete Customer & Regional Insights Dashboard
+# 3. Complete Customer & Regional Insights Dashboard (High Performance SQL)
 # ------------------------------------------------------------------------------
 def render_customer_dashboard():
     st.markdown("### 👥 Customer Lifetime Value & Geographic Segmentation")
@@ -269,57 +354,56 @@ def render_customer_dashboard():
 
     with st.spinner("⚡ Loading customer analytics from data warehouse..."):
         try:
-            df = fetch_customer_data()
+            df_kpis = fetch_customer_kpis()
+            df_states = fetch_customer_state_spend(10)
+            df_cities = fetch_customer_city_spend(10)
+            df_vips = fetch_customer_vip_leaderboard(15)
+        except ConnectionError as ce:
+            st.error(f"🚨 {ce}")
+            return
         except Exception as e:
             st.error(f"Failed to load customer data from warehouse: {e}")
             return
 
-    if df.empty:
+    if df_kpis.empty:
         st.warning("No customer data found in warehouse marts.")
         return
 
-    expected_cols = {"customer_unique_id", "customer_city", "customer_state", "total_orders", "total_spend"}
-    missing_cols = expected_cols - set(df.columns)
-    if missing_cols:
-        st.warning(f"Customer data is missing expected columns: {', '.join(sorted(missing_cols))}. Displaying available metrics.")
-
-    # Top KPI Metrics Row defensively
-    total_buyers = len(df)
-    total_customer_spend = float(df["total_spend"].sum()) if "total_spend" in df.columns else 0.0
-    avg_spend_per_buyer = (total_customer_spend / total_buyers) if total_buyers > 0 else 0.0
-    repeat_buyers = len(df[df["total_orders"] > 1]) if "total_orders" in df.columns else 0
-    repeat_rate = (repeat_buyers / total_buyers * 100) if total_buyers > 0 else 0.0
+    # Top KPI Metrics Row extracted directly from SQL aggregate
+    row = df_kpis.iloc[0]
+    total_buyers = int(row.get("total_buyers", 0))
+    total_customer_spend = float(row.get("total_customer_spend", 0.0))
+    avg_spend_per_buyer = float(row.get("avg_spend_per_buyer", 0.0))
+    repeat_buyers = int(row.get("repeat_buyers", 0))
+    repeat_rate = float(row.get("repeat_rate", 0.0))
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Buyers", f"{total_buyers:,}")
     c2.metric("Total Customer Spend", f"${total_customer_spend:,.2f}")
     c3.metric("Avg Spend Per Buyer", f"${avg_spend_per_buyer:,.2f}")
-    c4.metric("Repeat Buyer Rate", f"{repeat_rate:.2f}%")
+    c4.metric("Repeat Buyer Rate", f"{repeat_rate:.2f}%", help=f"{repeat_buyers:,} buyers with > 1 order")
 
     st.markdown("---")
 
     tab1, tab2, tab3 = st.tabs(["🗺️ Top 10 States by Revenue", "🏙️ Top 10 Cities by Revenue", "🏆 VIP Customers"])
     with tab1:
         st.markdown("##### Top Brazilian States by Total Spend")
-        if "customer_state" in df.columns and "total_spend" in df.columns:
-            state_spend = df.groupby("customer_state")["total_spend"].sum().sort_values(ascending=False).head(10)
-            st.bar_chart(state_spend)
+        if not df_states.empty and "customer_state" in df_states.columns and "total_spend" in df_states.columns:
+            st.bar_chart(df_states.set_index("customer_state")["total_spend"])
         else:
             st.info("State spend breakdown not available.")
 
     with tab2:
         st.markdown("##### Top Brazilian Cities by Total Spend")
-        if "customer_city" in df.columns and "total_spend" in df.columns:
-            city_spend = df.groupby("customer_city")["total_spend"].sum().sort_values(ascending=False).head(10)
-            st.bar_chart(city_spend)
+        if not df_cities.empty and "customer_city" in df_cities.columns and "total_spend" in df_cities.columns:
+            st.bar_chart(df_cities.set_index("customer_city")["total_spend"])
         else:
             st.info("City spend breakdown not available.")
 
     with tab3:
         st.markdown("##### Top 15 Highest Spending Customers")
-        vip_cols = [c for c in ["customer_unique_id", "customer_city", "customer_state", "total_orders", "total_spend"] if c in df.columns]
-        if vip_cols:
-            st.dataframe(df[vip_cols].head(15), width="stretch")
+        if not df_vips.empty:
+            st.dataframe(df_vips, width="stretch")
         else:
             st.info("Customer details not available.")
 
@@ -333,7 +417,10 @@ def render_product_dashboard():
 
     with st.spinner("⚡ Loading product catalog from data warehouse..."):
         try:
-            df = fetch_product_data()
+            df = fetch_product_data(limit=100)
+        except ConnectionError as ce:
+            st.error(f"🚨 {ce}")
+            return
         except Exception as e:
             st.error(f"Failed to load product catalog from warehouse: {e}")
             return
@@ -357,7 +444,7 @@ def render_product_dashboard():
             top_cat = str(cat_grouped.idxmax())
 
     p1, p2, p3, p4 = st.columns(4)
-    p1.metric("Catalog SKUs", f"{total_skus:,}")
+    p1.metric("Catalog SKUs (Sample)", f"{total_skus:,}")
     p2.metric("Total Units Sold", f"{total_units:,}")
     p3.metric("Catalog Revenue", f"${total_rev:,.2f}")
     p4.metric("Top Category", f"{top_cat}")

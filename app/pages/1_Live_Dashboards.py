@@ -26,6 +26,11 @@ from app.dashboard_renderer import (
     render_product_dashboard,
     render_sales_dashboard,
 )
+from app.db_helper import (
+    is_database_live,
+    is_demo_mode,
+    is_warehouse_configured,
+)
 
 st.set_page_config(
     page_title="NexusBI | Live Analytics Dashboards",
@@ -48,6 +53,11 @@ col_title, col_action = st.columns([8, 2])
 with col_title:
     st.markdown("<div class='main-header'>⚡ NexusBI: Live Analytical Dashboards</div>", unsafe_allow_html=True)
     st.markdown("<div class='sub-header'>Interactive business intelligence studio querying curated marts on PostgreSQL Data Warehouse.</div>", unsafe_allow_html=True)
+
+if is_demo_mode():
+    st.warning("⚠️ **DEMO DATA - not real**: Analytical dashboards are currently displaying synthetic demo data.")
+elif not is_warehouse_configured() or not is_database_live():
+    st.error("🚨 **Database not connected**: No active connection to the data warehouse. Please configure database credentials in environment variables or Streamlit Secrets.")
 
 with col_action:
     if st.button("💬 Open Conversational BI Chat", use_container_width=True):

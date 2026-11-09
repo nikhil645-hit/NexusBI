@@ -45,7 +45,8 @@ try:
     from app.db_helper import (
         execute_marts_query,
         get_marts_schema_text,
-        is_warehouse_configured,
+        is_database_live,
+        is_demo_mode,
     )
     from app.llm_helper import detect_dashboard_type, get_llm_adapter
     from app.sql_validator import validate_and_sanitize_sql
@@ -55,7 +56,8 @@ except ModuleNotFoundError:
     from db_helper import (
         execute_marts_query,
         get_marts_schema_text,
-        is_warehouse_configured,
+        is_database_live,
+        is_demo_mode,
     )
     from llm_helper import detect_dashboard_type, get_llm_adapter
     from sql_validator import validate_and_sanitize_sql
@@ -173,12 +175,23 @@ hourly_requests_used = len(st.session_state.request_timestamps)
 
 # System Metadata Helpers
 provider_name = os.getenv("LLM_PROVIDER", "gemini").upper()
-has_db = is_warehouse_configured()
-wh_host = os.getenv("DB_HOST") or os.getenv("WAREHOUSE_HOST", "localhost")
-wh_label = "AWS RDS (Sydney)" if "rds.amazonaws.com" in wh_host else ("Connected" if has_db else "Offline / Mock")
-wh_badge_class = "badge-status-ok" if has_db else "badge-status-mock"
+has_db = is_database_live()
+demo_on = is_demo_mode()
+
+if has_db:
+    wh_label = "LIVE Database (Connected)"
+    wh_badge_class = "badge-status-ok"
+    wh_mode_text = "Live Read-Only"
+elif demo_on:
+    wh_label = "DEMO Mode (Synthetic Data)"
+    wh_badge_class = "badge-status-mock"
+    wh_mode_text = "Synthetic Demo"
+else:
+    wh_label = "Database Offline"
+    wh_badge_class = "badge-status-mock"
+    wh_mode_text = "Disconnected"
+
 active_model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b") if provider_name == "GROQ" else os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
-wh_host_short = wh_host[:32] + "..." if len(wh_host) > 32 else wh_host
 
 
 # ------------------------------------------------------------------------------
@@ -200,8 +213,7 @@ st.markdown(
             <div style="margin: 10px 0;">
                 <div style="font-size:0.75rem; color:#64748b; font-weight:700; text-transform:uppercase;">Data Warehouse</div>
                 <div style="margin-top:2px;"><strong>Status:</strong> <span class="{wh_badge_class}">{wh_label}</span></div>
-                <div style="font-size:0.78rem; color:#64748b; margin-top:2px;">Host: <code>{wh_host_short}</code></div>
-                <div style="font-size:0.78rem; color:#64748b;">Region: <code>ap-southeast-2 (Sydney)</code></div>
+                <div style="font-size:0.78rem; color:#64748b; margin-top:2px;">Access Mode: <code>{wh_mode_text}</code></div>
             </div>
             <div style="margin: 10px 0;">
                 <div style="font-size:0.75rem; color:#64748b; font-weight:700; text-transform:uppercase;">Security & Governance</div>
@@ -326,7 +338,7 @@ with col_hdr_left:
     st.markdown(
         "<div class='sub-header'>"
         "Ask analytical questions or request live dashboards in natural language. Powered by LLM Text-to-SQL, "
-        "deterministic <code>sqlglot</code> AST security guardrails, and AWS RDS cloud data warehouse."
+        "deterministic <code>sqlglot</code> AST security guardrails, and PostgreSQL cloud data warehouse."
         "</div>",
         unsafe_allow_html=True,
     )
@@ -337,7 +349,7 @@ with col_hdr_right:
         st.markdown(f"**LLM Provider:** <span class='badge-provider'>{provider_name}</span>", unsafe_allow_html=True)
         st.caption(f"Model: `{active_model}`")
         st.markdown(f"**Warehouse:** <span class='{wh_badge_class}'>{wh_label}</span>", unsafe_allow_html=True)
-        st.caption(f"Host: `{wh_host_short}`")
+        st.caption(f"Mode: `{wh_mode_text}`")
         st.markdown("**AST Guardrail:** <span class='badge-status-ok'>sqlglot Active</span>", unsafe_allow_html=True)
         st.caption("Read-only access enforced strictly on `marts` schema.")
         st.divider()
@@ -353,6 +365,11 @@ with col_hdr_right:
             "- `marts.mart_customer_summary`\n"
             "- `marts.mart_delivery_performance`"
         )
+
+if is_demo_mode():
+    st.warning("⚠️ **DEMO DATA - not real**: The application is running in DEMO MODE with synthetic sample data.")
+elif not has_db:
+    st.error("🚨 **Database not connected**: No active connection to the data warehouse. Please configure database credentials in environment or Streamlit Secrets.")
 
 
 # ------------------------------------------------------------------------------
@@ -474,6 +491,8 @@ def render_intelligent_chart(df: pd.DataFrame):
 # ------------------------------------------------------------------------------
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
+        if msg["role"] == "assistant" and is_demo_mode():
+            st.caption("⚠️ *DEMO DATA - not real*")
         st.markdown(msg["content"])
         if "dashboard_type" in msg:
             dtype_label = msg["dashboard_type"].title()
@@ -502,6 +521,17 @@ if st.session_state.selected_sample_question:
     st.session_state.selected_sample_question = None
 
 if user_prompt:
+    # 0. Check Database Connection
+    if not is_demo_mode() and not is_database_live():
+        with st.chat_message("user"):
+            st.markdown(user_prompt)
+        st.session_state.messages.append({"role": "user", "content": user_prompt})
+        err_msg = "🚨 **Database not connected**: No active connection to the data warehouse. Please configure database credentials in environment or Streamlit Secrets."
+        with st.chat_message("assistant"):
+            st.error(err_msg)
+        st.session_state.messages.append({"role": "assistant", "content": err_msg})
+        st.stop()
+
     # 0. Abuse Protection: Enforce maximum input length
     if len(user_prompt) > MAX_PROMPT_LENGTH:
         st.warning(
@@ -776,7 +806,8 @@ if user_prompt:
                     elapsed_time = round(latency_ms / 1000.0, 2)
                     row_count = len(result_df) if result_df is not None else 0
 
-                    success_content = f"✅ Query executed successfully in **{elapsed_time}s** ({row_count} rows returned)."
+                    demo_prefix = "⚠️ **DEMO DATA - not real** (Synthetic sample data)\n\n" if is_demo_mode() else ""
+                    success_content = f"{demo_prefix}✅ Query executed successfully in **{elapsed_time}s** ({row_count} rows returned)."
                     message_placeholder.markdown(success_content)
 
                     with st.expander("🔍 View Verified SQL Query", expanded=False):

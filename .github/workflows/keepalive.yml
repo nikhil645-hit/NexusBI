@@ -1,12 +1,12 @@
 name: Keepalive Cloud Service Ping
 
 # Free cloud database and app hosts (such as Neon and Streamlit Cloud) often spin down
-# or sleep after periods of inactivity. This workflow pings your public URL once a week
-# to ensure demo links remain warm for recruiters and professors.
+# or sleep after periods of inactivity.
+# DISABLED: Pings were configured to only hit the Streamlit app. Disabled per hardening policy.
 
 on:
-  schedule:
-    - cron: "0 8 * * 1" # Runs every Monday at 08:00 UTC
+  # schedule:
+  #   - cron: "0 8 * * 1" # Disabled: Streamlit app keepalive ping disabled per hardening policy
   workflow_dispatch:
 
 jobs:
