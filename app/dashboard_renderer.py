@@ -4,10 +4,9 @@
 # Generates and renders full-screen, production-grade analytical dashboards
 # for Sales, Logistics/Delivery, Customers, Product Catalog, and 360 Overview.
 #
-# Connects directly to the curated marts schema on AWS RDS PostgreSQL in Sydney.
-# Works locally (localhost:8501) and on any cloud instance (AWS EC2 / ECS / Streamlit Cloud).
+# Connects directly to the curated marts schema on Cloud PostgreSQL (Neon / RDS).
+# Works locally (localhost:8501) and on Streamlit Community Cloud.
 # ==============================================================================
-
 
 import pandas as pd
 import streamlit as st
@@ -57,7 +56,7 @@ def fetch_customer_data() -> pd.DataFrame:
         total_orders,
         total_spend,
         first_order_date,
-        latest_order_date
+        last_order_date
     FROM marts.mart_customer_summary
     ORDER BY total_spend DESC;
     """
@@ -84,23 +83,31 @@ def fetch_product_data() -> pd.DataFrame:
 # ------------------------------------------------------------------------------
 def render_sales_dashboard():
     st.markdown("### 📈 Comprehensive Sales & Revenue Dashboard")
-    st.caption("Live metrics from AWS RDS `marts.mart_daily_sales` — Tracking orders, gross revenue, freight, and AOV.")
+    st.caption("Live metrics from PostgreSQL Data Warehouse `marts.mart_daily_sales` — Tracking orders, gross revenue, freight, and AOV.")
 
     with st.spinner("⚡ Loading live sales data from data warehouse..."):
-        df = fetch_sales_data()
+        try:
+            df = fetch_sales_data()
+        except Exception as e:
+            st.error(f"Failed to load sales data from warehouse: {e}")
+            return
 
     if df.empty:
         st.warning("No sales data found in warehouse marts.")
         return
 
-    df["sales_date"] = pd.to_datetime(df["sales_date"])
+    # Check for expected columns gracefully
+    expected_cols = {"sales_date", "total_revenue", "total_orders", "total_items_sold", "total_freight", "avg_order_value"}
+    missing_cols = expected_cols - set(df.columns)
+    if missing_cols:
+        st.warning(f"Sales data is missing expected columns: {', '.join(sorted(missing_cols))}. Displaying available metrics.")
 
-    # Top KPI Metrics Row
-    total_rev = df["total_revenue"].sum()
-    total_ord = df["total_orders"].sum()
-    total_items = df["total_items_sold"].sum()
-    overall_aov = total_rev / total_ord if total_ord > 0 else 0
-    total_freight = df["total_freight"].sum()
+    # Defensive KPI extraction
+    total_rev = float(df["total_revenue"].sum()) if "total_revenue" in df.columns else 0.0
+    total_ord = int(df["total_orders"].sum()) if "total_orders" in df.columns else 0
+    total_items = int(df["total_items_sold"].sum()) if "total_items_sold" in df.columns else 0
+    overall_aov = (total_rev / total_ord) if total_ord > 0 else 0.0
+    total_freight = float(df["total_freight"].sum()) if "total_freight" in df.columns else 0.0
 
     kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
     kpi1.metric("Gross Revenue", f"${total_rev:,.2f}")
@@ -111,33 +118,53 @@ def render_sales_dashboard():
 
     st.markdown("---")
 
+    # If sales_date is absent or empty, skip time filter and show raw table
+    if "sales_date" not in df.columns or df["sales_date"].dropna().empty:
+        st.info("Sales date column not available for time filtering.")
+        with st.expander("📋 View Raw Daily Sales Data", expanded=False):
+            st.dataframe(df, width="stretch")
+        return
+
+    df["sales_date"] = pd.to_datetime(df["sales_date"])
+    min_date = df["sales_date"].min().date()
+    max_date = df["sales_date"].max().date()
+
     # Interactive Filter Controls
     col_ctrl1, col_ctrl2 = st.columns([6, 4])
     with col_ctrl1:
         date_range = st.date_input(
             "Filter Date Range:",
-            value=(df["sales_date"].min().date(), df["sales_date"].max().date()),
-            min_value=df["sales_date"].min().date(),
-            max_value=df["sales_date"].max().date(),
+            value=(min_date, max_date),
+            min_value=min_date,
+            max_value=max_date,
             key="sales_date_range",
         )
     with col_ctrl2:
         granularity = st.radio("Aggregation Level:", ["Daily", "Monthly"], horizontal=True, key="sales_gran")
 
     # Apply date filtering
-    if isinstance(date_range, tuple) and len(date_range) == 2:
+    if isinstance(date_range, (tuple, list)) and len(date_range) == 2:
         df_filtered = df[(df["sales_date"].dt.date >= date_range[0]) & (df["sales_date"].dt.date <= date_range[1])].copy()
     else:
         df_filtered = df.copy()
 
+    if df_filtered.empty:
+        st.info("No sales records found for the selected date range.")
+        return
+
     if granularity == "Monthly":
         df_filtered["period"] = df_filtered["sales_date"].dt.to_period("M").astype(str)
-        chart_df = df_filtered.groupby("period").agg({
-            "total_revenue": "sum",
-            "total_orders": "sum",
-            "total_freight": "sum",
-            "avg_order_value": "mean"
-        }).reset_index().set_index("period")
+        agg_dict = {}
+        for c in ["total_revenue", "total_orders", "total_freight"]:
+            if c in df_filtered.columns:
+                agg_dict[c] = "sum"
+        if "avg_order_value" in df_filtered.columns:
+            agg_dict["avg_order_value"] = "mean"
+
+        if agg_dict:
+            chart_df = df_filtered.groupby("period").agg(agg_dict).reset_index().set_index("period")
+        else:
+            chart_df = df_filtered.set_index("period")
     else:
         chart_df = df_filtered.set_index("sales_date")
 
@@ -146,15 +173,25 @@ def render_sales_dashboard():
 
     with tab1:
         st.markdown("##### Gross Revenue vs Freight Over Time")
-        st.line_chart(chart_df[["total_revenue", "total_freight"]])
+        chart_cols = [c for c in ["total_revenue", "total_freight"] if c in chart_df.columns]
+        if chart_cols:
+            st.line_chart(chart_df[chart_cols])
+        else:
+            st.info("Revenue or Freight metrics not available.")
 
     with tab2:
         st.markdown("##### Order Volume")
-        st.bar_chart(chart_df["total_orders"])
+        if "total_orders" in chart_df.columns:
+            st.bar_chart(chart_df["total_orders"])
+        else:
+            st.info("Order count metrics not available.")
 
     with tab3:
         st.markdown("##### Average Order Value (AOV)")
-        st.line_chart(chart_df["avg_order_value"])
+        if "avg_order_value" in chart_df.columns:
+            st.line_chart(chart_df["avg_order_value"])
+        else:
+            st.info("Average order value metrics not available.")
 
     # Detailed Data Table
     with st.expander("📋 View Raw Daily Sales Data", expanded=False):
@@ -166,22 +203,31 @@ def render_sales_dashboard():
 # ------------------------------------------------------------------------------
 def render_delivery_dashboard():
     st.markdown("### 🚚 Delivery & Fulfillment SLA Dashboard")
-    st.caption("Live metrics from AWS RDS `marts.mart_delivery_performance` — Carrier transit durations, on-time rates, and SLA gaps.")
+    st.caption("Live metrics from PostgreSQL Data Warehouse `marts.mart_delivery_performance` — Carrier transit durations, on-time rates, and SLA gaps.")
 
     with st.spinner("⚡ Loading logistics data from data warehouse..."):
-        df = fetch_delivery_data()
+        try:
+            df = fetch_delivery_data()
+        except Exception as e:
+            st.error(f"Failed to load delivery data from warehouse: {e}")
+            return
 
     if df.empty:
         st.warning("No delivery data found in warehouse marts.")
         return
 
-    # Top KPI Metrics Row
-    total_delivered = df["total_delivered_orders"].sum()
-    total_late = df["late_orders_count"].sum()
-    overall_late_pct = (total_late / total_delivered * 100) if total_delivered > 0 else 0
+    expected_cols = {"year_month", "total_delivered_orders", "late_orders_count", "pct_late_vs_estimated", "avg_delivery_days", "avg_estimated_delivery_days"}
+    missing_cols = expected_cols - set(df.columns)
+    if missing_cols:
+        st.warning(f"Delivery data is missing expected columns: {', '.join(sorted(missing_cols))}. Displaying available metrics.")
+
+    # Top KPI Metrics Row defensively
+    total_delivered = int(df["total_delivered_orders"].sum()) if "total_delivered_orders" in df.columns else 0
+    total_late = int(df["late_orders_count"].sum()) if "late_orders_count" in df.columns else 0
+    overall_late_pct = (total_late / total_delivered * 100) if total_delivered > 0 else 0.0
     on_time_pct = 100.0 - overall_late_pct
-    avg_transit = df["avg_delivery_days"].mean()
-    avg_estimate = df["avg_estimated_delivery_days"].mean()
+    avg_transit = float(df["avg_delivery_days"].mean()) if "avg_delivery_days" in df.columns else 0.0
+    avg_estimate = float(df["avg_estimated_delivery_days"].mean()) if "avg_estimated_delivery_days" in df.columns else 0.0
 
     k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("Delivered Orders", f"{total_delivered:,}")
@@ -192,16 +238,23 @@ def render_delivery_dashboard():
 
     st.markdown("---")
 
-    chart_df = df.set_index("year_month")
+    chart_df = df.set_index("year_month") if "year_month" in df.columns else df
 
     tab1, tab2 = st.tabs(["📉 Monthly Delay % Trend", "⏱️ Actual vs Estimated Delivery Days"])
     with tab1:
         st.markdown("##### Percentage of Delayed Shipments vs Target")
-        st.line_chart(chart_df["pct_late_vs_estimated"])
+        if "pct_late_vs_estimated" in chart_df.columns:
+            st.line_chart(chart_df["pct_late_vs_estimated"])
+        else:
+            st.info("Delay percentage metrics not available.")
 
     with tab2:
         st.markdown("##### Actual Delivery Days vs Carrier Estimated Days")
-        st.bar_chart(chart_df[["avg_delivery_days", "avg_estimated_delivery_days"]])
+        transit_cols = [c for c in ["avg_delivery_days", "avg_estimated_delivery_days"] if c in chart_df.columns]
+        if transit_cols:
+            st.bar_chart(chart_df[transit_cols])
+        else:
+            st.info("Transit duration metrics not available.")
 
     with st.expander("📋 View Logistics Performance Data", expanded=False):
         st.dataframe(df, width="stretch")
@@ -212,21 +265,30 @@ def render_delivery_dashboard():
 # ------------------------------------------------------------------------------
 def render_customer_dashboard():
     st.markdown("### 👥 Customer Lifetime Value & Geographic Segmentation")
-    st.caption("Live metrics from AWS RDS `marts.mart_customer_summary` — Customer spend tiers, top buying states, and retention.")
+    st.caption("Live metrics from PostgreSQL Data Warehouse `marts.mart_customer_summary` — Customer spend tiers, top buying states, and retention.")
 
     with st.spinner("⚡ Loading customer analytics from data warehouse..."):
-        df = fetch_customer_data()
+        try:
+            df = fetch_customer_data()
+        except Exception as e:
+            st.error(f"Failed to load customer data from warehouse: {e}")
+            return
 
     if df.empty:
         st.warning("No customer data found in warehouse marts.")
         return
 
-    # Top KPI Metrics Row
+    expected_cols = {"customer_unique_id", "customer_city", "customer_state", "total_orders", "total_spend"}
+    missing_cols = expected_cols - set(df.columns)
+    if missing_cols:
+        st.warning(f"Customer data is missing expected columns: {', '.join(sorted(missing_cols))}. Displaying available metrics.")
+
+    # Top KPI Metrics Row defensively
     total_buyers = len(df)
-    total_customer_spend = df["total_spend"].sum()
-    avg_spend_per_buyer = df["total_spend"].mean()
-    repeat_buyers = len(df[df["total_orders"] > 1])
-    repeat_rate = (repeat_buyers / total_buyers * 100) if total_buyers > 0 else 0
+    total_customer_spend = float(df["total_spend"].sum()) if "total_spend" in df.columns else 0.0
+    avg_spend_per_buyer = (total_customer_spend / total_buyers) if total_buyers > 0 else 0.0
+    repeat_buyers = len(df[df["total_orders"] > 1]) if "total_orders" in df.columns else 0
+    repeat_rate = (repeat_buyers / total_buyers * 100) if total_buyers > 0 else 0.0
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Buyers", f"{total_buyers:,}")
@@ -236,22 +298,30 @@ def render_customer_dashboard():
 
     st.markdown("---")
 
-    # State Distribution
-    state_spend = df.groupby("customer_state")["total_spend"].sum().sort_values(ascending=False).head(10)
-    city_spend = df.groupby("customer_city")["total_spend"].sum().sort_values(ascending=False).head(10)
-
     tab1, tab2, tab3 = st.tabs(["🗺️ Top 10 States by Revenue", "🏙️ Top 10 Cities by Revenue", "🏆 VIP Customers"])
     with tab1:
         st.markdown("##### Top Brazilian States by Total Spend")
-        st.bar_chart(state_spend)
+        if "customer_state" in df.columns and "total_spend" in df.columns:
+            state_spend = df.groupby("customer_state")["total_spend"].sum().sort_values(ascending=False).head(10)
+            st.bar_chart(state_spend)
+        else:
+            st.info("State spend breakdown not available.")
 
     with tab2:
         st.markdown("##### Top Brazilian Cities by Total Spend")
-        st.bar_chart(city_spend)
+        if "customer_city" in df.columns and "total_spend" in df.columns:
+            city_spend = df.groupby("customer_city")["total_spend"].sum().sort_values(ascending=False).head(10)
+            st.bar_chart(city_spend)
+        else:
+            st.info("City spend breakdown not available.")
 
     with tab3:
         st.markdown("##### Top 15 Highest Spending Customers")
-        st.dataframe(df[["customer_unique_id", "customer_city", "customer_state", "total_orders", "total_spend"]].head(15), width="stretch")
+        vip_cols = [c for c in ["customer_unique_id", "customer_city", "customer_state", "total_orders", "total_spend"] if c in df.columns]
+        if vip_cols:
+            st.dataframe(df[vip_cols].head(15), width="stretch")
+        else:
+            st.info("Customer details not available.")
 
 
 # ------------------------------------------------------------------------------
@@ -259,19 +329,32 @@ def render_customer_dashboard():
 # ------------------------------------------------------------------------------
 def render_product_dashboard():
     st.markdown("### 📦 Product Catalog & Category Leaderboards")
-    st.caption("Live metrics from AWS RDS `marts.mart_top_products` — High margin categories, best sellers, and unit velocities.")
+    st.caption("Live metrics from PostgreSQL Data Warehouse `marts.mart_top_products` — High margin categories, best sellers, and unit velocities.")
 
     with st.spinner("⚡ Loading product catalog from data warehouse..."):
-        df = fetch_product_data()
+        try:
+            df = fetch_product_data()
+        except Exception as e:
+            st.error(f"Failed to load product catalog from warehouse: {e}")
+            return
 
     if df.empty:
         st.warning("No product data found in warehouse marts.")
         return
 
+    expected_cols = {"product_id", "category_name", "units_sold", "total_revenue", "revenue_rank"}
+    missing_cols = expected_cols - set(df.columns)
+    if missing_cols:
+        st.warning(f"Product data is missing expected columns: {', '.join(sorted(missing_cols))}. Displaying available metrics.")
+
     total_skus = len(df)
-    total_units = df["units_sold"].sum()
-    total_rev = df["total_revenue"].sum()
-    top_cat = df.groupby("category_name")["total_revenue"].sum().idxmax() if "category_name" in df.columns else "N/A"
+    total_units = int(df["units_sold"].sum()) if "units_sold" in df.columns else 0
+    total_rev = float(df["total_revenue"].sum()) if "total_revenue" in df.columns else 0.0
+    top_cat = "N/A"
+    if "category_name" in df.columns and "total_revenue" in df.columns and not df.empty:
+        cat_grouped = df.groupby("category_name")["total_revenue"].sum()
+        if not cat_grouped.empty:
+            top_cat = str(cat_grouped.idxmax())
 
     p1, p2, p3, p4 = st.columns(4)
     p1.metric("Catalog SKUs", f"{total_skus:,}")
@@ -281,17 +364,22 @@ def render_product_dashboard():
 
     st.markdown("---")
 
-    cat_rev = df.groupby("category_name")["total_revenue"].sum().sort_values(ascending=False).head(10)
-    cat_units = df.groupby("category_name")["units_sold"].sum().sort_values(ascending=False).head(10)
-
     t1, t2, t3 = st.tabs(["📊 Top Categories (Revenue)", "📦 Top Categories (Units)", "📋 Product Leaderboard"])
     with t1:
         st.markdown("##### Top 10 Product Categories by Gross Revenue")
-        st.bar_chart(cat_rev)
+        if "category_name" in df.columns and "total_revenue" in df.columns:
+            cat_rev = df.groupby("category_name")["total_revenue"].sum().sort_values(ascending=False).head(10)
+            st.bar_chart(cat_rev)
+        else:
+            st.info("Category revenue breakdown not available.")
 
     with t2:
         st.markdown("##### Top 10 Product Categories by Units Sold")
-        st.bar_chart(cat_units)
+        if "category_name" in df.columns and "units_sold" in df.columns:
+            cat_units = df.groupby("category_name")["units_sold"].sum().sort_values(ascending=False).head(10)
+            st.bar_chart(cat_units)
+        else:
+            st.info("Category unit breakdown not available.")
 
     with t3:
         st.markdown("##### Best-Selling Products Leaderboard")
@@ -305,7 +393,7 @@ def render_360_overview_dashboard():
     st.markdown("### 🌐 Executive 360° Platform Cockpit")
     st.caption("Unified multi-dimensional view synthesizing Sales, Logistics, Customers, and Catalog performance.")
 
-    st.info("💡 **Executive Cockpit**: Showing cross-functional health metrics from all 4 data marts in Sydney.")
+    st.info("💡 **Executive Cockpit**: Showing cross-functional health metrics from all 4 data marts in data warehouse.")
     render_sales_dashboard()
     st.markdown("---")
     render_delivery_dashboard()
@@ -329,4 +417,3 @@ def render_dashboard_by_type(dashboard_type: str = "sales"):
         render_product_dashboard()
     else:
         render_sales_dashboard()
-

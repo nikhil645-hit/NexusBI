@@ -47,7 +47,7 @@ st.markdown(
 col_title, col_action = st.columns([8, 2])
 with col_title:
     st.markdown("<div class='main-header'>⚡ NexusBI: Live Analytical Dashboards</div>", unsafe_allow_html=True)
-    st.markdown("<div class='sub-header'>Interactive business intelligence studio querying curated marts on AWS RDS PostgreSQL (ap-southeast-2 Sydney).</div>", unsafe_allow_html=True)
+    st.markdown("<div class='sub-header'>Interactive business intelligence studio querying curated marts on PostgreSQL Data Warehouse.</div>", unsafe_allow_html=True)
 
 with col_action:
     if st.button("💬 Open Conversational BI Chat", use_container_width=True):
