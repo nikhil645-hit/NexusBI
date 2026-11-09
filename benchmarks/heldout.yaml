@@ -1,0 +1,138 @@
+# ==============================================================================
+# benchmarks/heldout.yaml - 10 Held-Out Text-to-SQL Benchmark Questions
+#
+# CRITICAL NOTICE:
+# This evaluation dataset is strictly held out. NEVER use for tuning, prompt
+# engineering, semantic layer adjustments, or few-shot examples.
+#
+# Covers all 4 analytical data marts:
+#   - 4 Easy questions (h01 - h04)
+#   - 4 Medium questions (h05 - h08)
+#   - 2 Hard questions (h09 - h10)
+# ==============================================================================
+
+questions:
+  # ----------------------------------------------------------------------------
+  # Easy Questions (4)
+  # ----------------------------------------------------------------------------
+  - id: h01
+    difficulty: easy
+    question: "What is the total freight amount collected across all recorded sales?"
+    expected_sql: |
+      SELECT SUM(total_freight) AS total_freight
+      FROM marts.mart_daily_sales;
+    notes: "Scalar aggregation on mart_daily_sales. Never use for tuning."
+
+  - id: h02
+    difficulty: easy
+    question: "How many distinct customers are located in the state of Rio de Janeiro (RJ)?"
+    expected_sql: |
+      SELECT COUNT(customer_unique_id) AS total_customers
+      FROM marts.mart_customer_summary
+      WHERE customer_state = 'RJ';
+    notes: "Filter and count on customer summary. Never use for tuning."
+
+  - id: h03
+    difficulty: easy
+    question: "What is the total number of distinct products recorded in the top products mart?"
+    expected_sql: |
+      SELECT COUNT(product_id) AS total_products
+      FROM marts.mart_top_products;
+    notes: "Count of items in mart_top_products. Never use for tuning."
+
+  - id: h04
+    difficulty: easy
+    question: "How many total orders were delivered late across all recorded months?"
+    expected_sql: |
+      SELECT SUM(late_orders_count) AS total_late_orders
+      FROM marts.mart_delivery_performance;
+    notes: "Sum of late orders across delivery performance months. Never use for tuning."
+
+  # ----------------------------------------------------------------------------
+  # Medium Questions (4)
+  # ----------------------------------------------------------------------------
+  - id: h05
+    difficulty: medium
+    question: "Show the total revenue and total orders for the month of July 2017."
+    expected_sql: |
+      SELECT SUM(total_revenue) AS total_revenue,
+             SUM(total_orders) AS total_orders
+      FROM marts.mart_daily_sales
+      WHERE sales_date >= '2017-07-01' AND sales_date <= '2017-07-31';
+    notes: "Date range filtering and aggregation on daily sales. Never use for tuning."
+
+  - id: h06
+    difficulty: medium
+    question: "List the top 5 product categories by total units sold."
+    expected_sql: |
+      SELECT category_name, SUM(units_sold) AS total_units_sold
+      FROM marts.mart_top_products
+      GROUP BY category_name
+      ORDER BY total_units_sold DESC
+      LIMIT 5;
+    notes: "Group by category with order by units sold descending. Never use for tuning."
+
+  - id: h07
+    difficulty: medium
+    question: "What are the top 5 customer cities by total spend?"
+    expected_sql: |
+      SELECT customer_city, SUM(total_spend) AS total_spend
+      FROM marts.mart_customer_summary
+      GROUP BY customer_city
+      ORDER BY total_spend DESC
+      LIMIT 5;
+    notes: "Group by customer city ordered by total spend descending. Never use for tuning."
+
+  - id: h08
+    difficulty: medium
+    question: "Which 3 months had the lowest percentage of late deliveries?"
+    expected_sql: |
+      SELECT year_month, pct_late_vs_estimated
+      FROM marts.mart_delivery_performance
+      ORDER BY pct_late_vs_estimated ASC
+      LIMIT 3;
+    notes: "Sort by late delivery percentage ascending with limit 3. Never use for tuning."
+
+  # ----------------------------------------------------------------------------
+  # Hard Questions (2)
+  # ----------------------------------------------------------------------------
+  - id: h09
+    difficulty: hard
+    question: "Find the top 3 states by total customer spend, and calculate each state's percentage share of overall customer spend."
+    expected_sql: |
+      WITH state_spend AS (
+          SELECT customer_state, SUM(total_spend) AS state_total
+          FROM marts.mart_customer_summary
+          GROUP BY customer_state
+      ),
+      overall AS (
+          SELECT SUM(state_total) AS grand_total FROM state_spend
+      )
+      SELECT s.customer_state,
+             s.state_total,
+             ROUND((s.state_total / o.grand_total) * 100, 2) AS spend_pct
+      FROM state_spend s, overall o
+      ORDER BY s.state_total DESC
+      LIMIT 3;
+    notes: "CTE calculating percentage of grand total across Brazilian states. Never use for tuning."
+
+  - id: h10
+    difficulty: hard
+    question: "For each month in 2017, show the total monthly revenue alongside the count of late delivered orders, ordered chronologically by month."
+    expected_sql: |
+      WITH monthly_rev AS (
+          SELECT TO_CHAR(sales_date, 'YYYY-MM') AS month,
+                 SUM(total_revenue) AS monthly_revenue
+          FROM marts.mart_daily_sales
+          WHERE sales_date >= '2017-01-01' AND sales_date <= '2017-12-31'
+          GROUP BY 1
+      )
+      SELECT m.month,
+             m.monthly_revenue,
+             d.late_orders_count
+      FROM monthly_rev m
+      JOIN marts.mart_delivery_performance d
+        ON m.month = d.year_month
+      ORDER BY m.month ASC;
+    notes: "Cross-mart monthly aggregation and join between sales and logistics. Never use for tuning."
+

@@ -1,13 +1,33 @@
-# 📊 Text-to-SQL Accuracy Benchmark Report
+# 📊 Text-to-SQL Accuracy & Variance Benchmark Report
 
-- **Timestamp**: `2026-11-09T06:22:49.002247+00:00`
+- **Timestamp**: `2026-11-09T08:31:11.335129+00:00`
 - **Benchmark Mode**: `live`
-- **LLM Evaluated**: `GroqCloudAdapter`
-- **Total Test Questions**: `30`
-- **Overall Accuracy**: **`80.0%`** (24/30)
-- **Average Query Latency**: `1572.71 ms`
+- **Evaluation Set**: `main`
+- **LLM Evaluated**: `GroqCloudAdapter` (Temperature: `0.0`)
+- **Runs Evaluated**: `3`
+- **Mean Accuracy**: **`81.11%`** (Min: `80.0%`, Max: `83.33%`)
+- **Flipping Questions**: `3`
+- **Average Query Latency**: `2276.01 ms`
 
-## 🎯 Accuracy by Difficulty
+## 📈 Multi-Run Variance Breakdown
+
+| Run Index | Passed Questions | Total Questions | Accuracy % | Avg Latency (ms) |
+| :---: | :---: | :---: | :---: | :---: |
+| Run 1 | 25 | 30 | **83.33%** | 1966.64 |
+| Run 2 | 24 | 30 | **80.0%** | 1998.44 |
+| Run 3 | 24 | 30 | **80.0%** | 2276.01 |
+
+## 🔄 Question Stability & Flips Across Runs
+
+The following 3 question(s) flipped between passing and failing across evaluation runs:
+
+| Question ID | Run 1 | Run 2 | Run 3 | Stability Note |
+| :--- | :---: | :---: | :---: | :--- |
+| `q14` | ❌ FAIL | ✅ PASS | ❌ FAIL | Passed 1/3 runs |
+| `q22` | ✅ PASS | ❌ FAIL | ❌ FAIL | Passed 1/3 runs |
+| `q30` | ✅ PASS | ❌ FAIL | ✅ PASS | Passed 2/3 runs |
+
+## 🎯 Accuracy by Difficulty (Latest Run)
 
 | Difficulty | Total Questions | Passed | Accuracy % |
 | :--- | :---: | :---: | :---: |
@@ -15,19 +35,19 @@
 | **Medium** | 12 | 10 | 83.33% |
 | **Hard** | 8 | 5 | 62.5% |
 
-## 🔬 Failure Analysis
+## 🔬 Failure Analysis (Latest Run)
 
 | Question ID | Difficulty | Question | Reason |
 | :--- | :---: | :--- | :--- |
 | `q07` | easy | What was the average delivery time in days across all months? | Value mismatch at row 0, col 0: 12.5 != 14.309130434782608 (tol=0.05) |
-| `q14` | medium | Show the top 3 product categories by average unit price with at least 50 units sold. | Value mismatch at row 0, col 1: 1368.067 != 1098.3405418719212 (tol=0.05) |
+| `q14` | medium | Show the top 3 product categories by average unit price with at least 50 units sold. | Shape mismatch: generated (3, 2) vs expected (3, 3) |
 | `q22` | medium | Which 5 product categories have the highest total revenue per unit sold? | Shape mismatch: generated (5, 4) vs expected (5, 2) |
 | `q23` | hard | What percentage of total revenue came from the top 3 product categories? | SQL Execution Error: column "total.total_revenue" must appear in the GROUP BY clause or be used in an aggregate function
 LINE 1: ...UM(CASE WHEN rn <= 3 THEN category_revenue END) / total.tota...
                                                              ^
  |
 | `q28` | hard | What was the 7-day rolling average revenue for the last 7 days of recorded daily sales? | Shape mismatch: generated (7, 2) vs expected (7, 3) |
-| `q29` | hard | Compare the average spend of single-order buyers versus multi-order repeat buyers. Return one row per buyer type (single-order vs repeat) with the average spend. | String mismatch at row 0, col 0: 'repeat' != 'repeat buyer' |
+| `q29` | hard | Compare the average spend of single-order buyers versus multi-order repeat buyers. Return one row per buyer type (single-order vs repeat) with the average spend. | String mismatch at row 0, col 0: 'repeat' != 'Repeat Buyer' |
 
 ### Detailed Failure Diffs
 
@@ -49,23 +69,15 @@ FROM marts.mart_delivery_performance;
 ```
 
 #### `q14` - Show the top 3 product categories by average unit price with at least 50 units sold.
-- **Failure Reason**: Value mismatch at row 0, col 1: 1368.067 != 1098.3405418719212 (tol=0.05)
+- **Failure Reason**: Shape mismatch: generated (3, 2) vs expected (3, 3)
 ```sql
 -- Generated SQL
-WITH category_stats AS (
-    SELECT
-        category_name,
-        AVG(avg_unit_price) AS avg_unit_price,
-        SUM(units_sold) AS total_units_sold
-    FROM marts.mart_top_products
-    GROUP BY category_name
-    HAVING SUM(units_sold) >= 50
-)
 SELECT
     category_name,
-    avg_unit_price,
-    total_units_sold
-FROM category_stats
+    AVG(avg_unit_price) AS avg_unit_price
+FROM marts.mart_top_products
+WHERE units_sold >= 50
+GROUP BY category_name
 ORDER BY avg_unit_price DESC
 LIMIT 3;
 
@@ -135,7 +147,8 @@ SELECT
         (SUM(CASE WHEN rn <= 3 THEN category_revenue END) / total.total_revenue) * 100,
         2
     ) AS top_3_category_revenue_pct
-FROM ranked, total;
+FROM ranked
+CROSS JOIN total;
 
 -- Expected Ground Truth SQL
 WITH cat_rev AS (
@@ -159,21 +172,21 @@ FROM top3, total;
 - **Failure Reason**: Shape mismatch: generated (7, 2) vs expected (7, 3)
 ```sql
 -- Generated SQL
-WITH ordered AS (
+WITH ranked AS (
     SELECT
         sales_date,
         total_revenue,
-        AVG(total_revenue) OVER (
+        SUM(total_revenue) OVER (
             ORDER BY sales_date
             ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
-        ) AS rolling_7d_avg,
+        ) / 7.0 AS rolling_7day_avg_revenue,
         ROW_NUMBER() OVER (ORDER BY sales_date DESC) AS rn_desc
     FROM marts.mart_daily_sales
 )
 SELECT
     sales_date,
-    rolling_7d_avg AS rolling_7d_avg_revenue
-FROM ordered
+    rolling_7day_avg_revenue
+FROM ranked
 WHERE rn_desc <= 7
 ORDER BY sales_date ASC;
 
@@ -191,7 +204,7 @@ LIMIT 7;
 ```
 
 #### `q29` - Compare the average spend of single-order buyers versus multi-order repeat buyers. Return one row per buyer type (single-order vs repeat) with the average spend.
-- **Failure Reason**: String mismatch at row 0, col 0: 'repeat' != 'repeat buyer'
+- **Failure Reason**: String mismatch at row 0, col 0: 'repeat' != 'Repeat Buyer'
 ```sql
 -- Generated SQL
 SELECT

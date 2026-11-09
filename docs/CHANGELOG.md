@@ -51,8 +51,8 @@ All notable changes to the NexusBI platform are documented here following [Keep 
   - `LICENSE`: MIT License.
 
 ### Changed
-- Refactored `README.md` to present verified, honest metrics (100k orders, 94,989 customers, 614 sales days, 45 dbt tests, 59 guardrail tests, 80.0% live benchmark score, 24/30 passed) as a 3rd-year computer engineering student portfolio project.
-- Refined Text-to-SQL benchmark scoring harness and semantic layer: score progressed from 73.3% (22/30) v1 strict baseline to 80.0% (24/30) live, where 5 scoring-harness fixes (aligning expected columns to question prompts in q19/q25/q30, normalizing date/month formats in q21, and clarifying prompt wording in q29) eliminated artificial grading mismatches, while semantic layer query rules guided proper SQL generation.
+- Refactored `README.md` to present verified, honest metrics (100k orders, 94,989 customers, 614 sales days, 45 dbt tests, 59 guardrail tests, 81.1% 3-run mean benchmark score, 100.0% held-out score) as a 3rd-year computer engineering student portfolio project.
+- Refined Text-to-SQL benchmark scoring harness, variance testing, and held-out evaluation: scoring harness fixes resolved 5 artificial grading mismatches, and semantic layer query rules improved cross-mart join behavior (q26), but also introduced regressions—specifically in q07 where the weighted-average rule diverged from the unweighted ground truth, in q22 due to extra projected columns, and in q23 from CTE aggregation syntax errors—while weighted-average and rolling-window queries remain weak. Across 3 evaluation runs at temperature 0.0, the benchmark achieved a mean accuracy of 81.1% (min 80.0%, max 83.3%, with 3 questions flipping: q14, q22, q30), alongside 100.0% (10/10) on a separate un-tuned held-out evaluation set (`benchmarks/heldout.yaml`).
 - Resolved pandas DBAPI2 `UserWarning` in `app/db_helper.py` by building DataFrames directly from cursor records and type-casting numeric decimals.
 - Removed inflated buzzwords ("enterprise-grade", "autonomous", "sub-second") across all codebase files.
 - Consolidated linter and test configuration into `pyproject.toml`.
