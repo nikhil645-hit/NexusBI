@@ -103,3 +103,4 @@ ON CONFLICT (order_month) DO NOTHING;
 -- 5. Grant Permissions
 GRANT SELECT ON ALL TABLES IN SCHEMA marts TO app_readonly;
 ALTER DEFAULT PRIVILEGES IN SCHEMA marts GRANT SELECT ON TABLES TO app_readonly;
+

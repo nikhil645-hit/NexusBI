@@ -42,6 +42,7 @@ dbt/olist_dbt/target/
 dbt/olist_dbt/dbt_packages/
 dbt/olist_dbt/logs/
 dbt/olist_dbt/.user.yml
+docs/dbt-docs/
 logs/
 
 # Temporary binaries and response dumps

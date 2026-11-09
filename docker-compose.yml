@@ -37,3 +37,4 @@ services:
       RATE_LIMIT_PER_HOUR: "50"
       MAX_PROMPT_LENGTH: "500"
     restart: unless-stopped
+

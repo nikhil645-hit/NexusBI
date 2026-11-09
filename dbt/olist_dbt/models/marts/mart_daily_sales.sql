@@ -1,13 +1,28 @@
 -- ==============================================================================
--- mart_daily_sales.sql - Daily E-Commerce Sales Performance
--- Purpose:
---   Aggregates sales metrics at the daily grain: order volume, units sold,
---   total merchandise revenue, freight revenue, and average order value (AOV).
+-- mart_daily_sales.sql - Daily E-Commerce Sales Performance (Incremental)
+--
+-- Materialization: Incremental with unique_key='sales_date'.
+-- On full refresh, processes entire transaction history.
+-- On incremental runs, looks back 3 days to capture late-arriving orders.
 -- ==============================================================================
+
+{{
+    config(
+        materialized='incremental',
+        unique_key='sales_date',
+        on_schema_change='sync_all_columns'
+    )
+}}
 
 with orders as (
     select * from {{ ref('stg_orders') }}
     where order_status != 'canceled'
+    {% if is_incremental() %}
+        and order_purchase_date >= (
+            select coalesce(max(sales_date) - interval '3 days', '2016-01-01'::date)
+            from {{ this }}
+        )
+    {% endif %}
 ),
 
 order_items as (
@@ -33,4 +48,3 @@ daily_metrics as (
 
 select * from daily_metrics
 order by sales_date desc
-

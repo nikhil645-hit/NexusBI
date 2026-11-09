@@ -27,8 +27,12 @@ models:
           - not_null
       - name: total_freight
         description: "Total freight charges collected"
+        tests:
+          - not_null
       - name: avg_order_value
         description: "Average gross revenue per order (total_revenue / total_orders)"
+        tests:
+          - not_null
 
   - name: mart_top_products
     description: "Product and category leaderboard ranked by revenue and units sold"
@@ -106,6 +110,10 @@ models:
         description: "Average estimated delivery duration committed to customer"
       - name: late_orders_count
         description: "Number of orders delivered past the estimated delivery date"
+        tests:
+          - not_null
       - name: pct_late_vs_estimated
         description: "Percentage of delivered orders that were late"
+        tests:
+          - not_null
 
