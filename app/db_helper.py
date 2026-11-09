@@ -67,9 +67,9 @@ Columns:
 
 def is_warehouse_configured() -> bool:
     """Checks if valid non-placeholder Warehouse credentials are set in environment."""
-    host = os.getenv("WAREHOUSE_HOST") or os.getenv("REDSHIFT_HOST", "")
-    user = os.getenv("WAREHOUSE_APP_USER") or os.getenv("REDSHIFT_APP_USER", "")
-    pwd = os.getenv("WAREHOUSE_APP_PASSWORD") or os.getenv("REDSHIFT_APP_PASSWORD", "")
+    host = os.getenv("DB_HOST") or os.getenv("WAREHOUSE_HOST") or os.getenv("REDSHIFT_HOST", "")
+    user = os.getenv("DB_USER") or os.getenv("WAREHOUSE_APP_USER") or os.getenv("REDSHIFT_APP_USER", "")
+    pwd = os.getenv("DB_PASSWORD") or os.getenv("WAREHOUSE_APP_PASSWORD") or os.getenv("REDSHIFT_APP_PASSWORD", "")
 
     if not host or "placeholder" in host or "your-" in host:
         return False
@@ -81,23 +81,25 @@ def is_warehouse_configured() -> bool:
 def get_connection():
     """
     Creates and returns a connection to the PostgreSQL data warehouse using read-only credentials.
+    Enforces server-side statement_timeout (default 10s) and search_path=marts.
     Raises RuntimeError with friendly instructions if credentials are unconfigured.
     """
     if not is_warehouse_configured():
         raise RuntimeError(
             "Warehouse is not yet configured or is using placeholder credentials.\n"
-            "Please configure WAREHOUSE_HOST, WAREHOUSE_APP_USER, and WAREHOUSE_APP_PASSWORD in your .env file."
+            "Please configure DB_HOST, DB_USER, and DB_PASSWORD (or WAREHOUSE_*) in your .env file."
         )
 
     import psycopg2
 
-    host = os.getenv("WAREHOUSE_HOST") or os.getenv("REDSHIFT_HOST", "localhost")
-    port = int(os.getenv("WAREHOUSE_PORT") or os.getenv("REDSHIFT_PORT", "5434"))
-    db = os.getenv("WAREHOUSE_DB") or os.getenv("REDSHIFT_DB", "warehouse")
-    user = os.getenv("WAREHOUSE_APP_USER") or os.getenv("REDSHIFT_APP_USER", "app_readonly")
-    password = os.getenv("WAREHOUSE_APP_PASSWORD") or os.getenv("REDSHIFT_APP_PASSWORD", "")
+    host = os.getenv("DB_HOST") or os.getenv("WAREHOUSE_HOST") or os.getenv("REDSHIFT_HOST", "localhost")
+    port = int(os.getenv("DB_PORT") or os.getenv("WAREHOUSE_PORT") or os.getenv("REDSHIFT_PORT", "5434"))
+    db = os.getenv("DB_NAME") or os.getenv("WAREHOUSE_DB") or os.getenv("REDSHIFT_DB", "warehouse")
+    user = os.getenv("DB_USER") or os.getenv("WAREHOUSE_APP_USER") or os.getenv("REDSHIFT_APP_USER", "app_readonly")
+    password = os.getenv("DB_PASSWORD") or os.getenv("WAREHOUSE_APP_PASSWORD") or os.getenv("REDSHIFT_APP_PASSWORD", "")
 
-    sslmode = os.getenv("WAREHOUSE_SSLMODE", "prefer")
+    sslmode = os.getenv("DB_SSLMODE") or os.getenv("WAREHOUSE_SSLMODE", "prefer")
+    statement_timeout_ms = int(os.getenv("STATEMENT_TIMEOUT_MS", "10000"))
 
     try:
         conn = psycopg2.connect(
@@ -108,8 +110,12 @@ def get_connection():
             password=password,
             sslmode=sslmode,
             connect_timeout=15,
-            options="-c search_path=marts",
+            options=f"-c search_path=marts -c statement_timeout={statement_timeout_ms}",
         )
+        # Explicitly enforce statement_timeout on the session
+        with conn.cursor() as cur:
+            cur.execute(f"SET statement_timeout = {statement_timeout_ms};")
+        conn.commit()
         return conn
     except Exception as e:
         # Sanitize error to prevent credential leaks
