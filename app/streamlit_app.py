@@ -494,6 +494,20 @@ for msg in st.session_state.messages:
         if msg["role"] == "assistant" and is_demo_mode():
             st.caption("⚠️ *DEMO DATA - not real*")
         st.markdown(msg["content"])
+        if msg.get("out_of_scope_buttons"):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                if st.button("📊 Top 5 product categories by revenue", key=f"oos_hist_1_{abs(hash(msg['content']))}", use_container_width=True):
+                    st.session_state.selected_sample_question = "What are the top 5 product categories by total revenue?"
+                    st.rerun()
+            with col2:
+                if st.button("📈 Monthly revenue trend", key=f"oos_hist_2_{abs(hash(msg['content']))}", use_container_width=True):
+                    st.session_state.selected_sample_question = "Show the daily sales trend and average order value for the last 30 days."
+                    st.rerun()
+            with col3:
+                if st.button("🚚 Late delivery rate by month", key=f"oos_hist_3_{abs(hash(msg['content']))}", use_container_width=True):
+                    st.session_state.selected_sample_question = "What percentage of orders were delivered late each month?"
+                    st.rerun()
         if "dashboard_type" in msg:
             dtype_label = msg["dashboard_type"].title()
             if st.button(f"🚀 Open Full-Screen {dtype_label} Dashboard", key=f"btn_hist_{msg['dashboard_type']}_{abs(hash(msg['content']))}"):
@@ -596,12 +610,57 @@ if user_prompt:
                 try:
                     intent = llm.classify_intent(user_prompt)
                 except Exception:
-                    intent = "DATA_QUERY"
+                    intent = "OUT_OF_SCOPE"
+
+        # ----------------------------------------------------------------------
+        # Path OUT_OF_SCOPE: Off-topic questions (coding, trivia, chit-chat, etc.)
+        # ----------------------------------------------------------------------
+        if intent == "OUT_OF_SCOPE":
+            out_of_scope_msg = (
+                "👋 I'm the **NexusBI Assistant**, focused specifically on exploring Brazilian E-Commerce (Olist) data, "
+                "visualizing analytics dashboards, e-commerce business strategy, and data engineering pipeline architecture.\n\n"
+                "I cannot help with general coding, homework, trivia, or non-ecommerce topics. "
+                "If you were asking a data or strategy question, please rephrase it with specific terms (like sales, products, customers, or delivery).\n\n"
+                "Here are a few questions you can ask me:"
+            )
+            message_placeholder.markdown(out_of_scope_msg)
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                if st.button("📊 Top 5 product categories by revenue", key="btn_oos_1", use_container_width=True):
+                    st.session_state.selected_sample_question = "What are the top 5 product categories by total revenue?"
+                    st.rerun()
+            with col2:
+                if st.button("📈 Monthly revenue trend", key="btn_oos_2", use_container_width=True):
+                    st.session_state.selected_sample_question = "Show the daily sales trend and average order value for the last 30 days."
+                    st.rerun()
+            with col3:
+                if st.button("🚚 Late delivery rate by month", key="btn_oos_3", use_container_width=True):
+                    st.session_state.selected_sample_question = "What percentage of orders were delivered late each month?"
+                    st.rerun()
+
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": out_of_scope_msg,
+                "out_of_scope_buttons": True,
+            })
+            latency_ms = (time.time() - t_pipeline_start) * 1000
+            st.session_state.last_latency_ms = latency_ms
+            log_query_event(
+                session_id=st.session_state.session_id,
+                intent="OUT_OF_SCOPE",
+                question=user_prompt,
+                generated_sql=None,
+                guardrail_result="PASSED",
+                rows_returned=0,
+                latency_ms=latency_ms,
+                error=None,
+            )
 
         # ----------------------------------------------------------------------
         # Path A: Dynamic Full-Screen Dashboard Generation (Localhost / AWS Cloud Link)
         # ----------------------------------------------------------------------
-        if intent == "DASHBOARD_REQUEST":
+        elif intent == "DASHBOARD_REQUEST":
             dtype = detect_dashboard_type(user_prompt)
             dtype_titles = {
                 "sales": "📈 Sales & Revenue Dashboard",
@@ -806,8 +865,10 @@ if user_prompt:
                     elapsed_time = round(latency_ms / 1000.0, 2)
                     row_count = len(result_df) if result_df is not None else 0
 
-                    demo_prefix = "⚠️ **DEMO DATA - not real** (Synthetic sample data)\n\n" if is_demo_mode() else ""
-                    success_content = f"{demo_prefix}✅ Query executed successfully in **{elapsed_time}s** ({row_count} rows returned)."
+                    if is_database_live():
+                        success_content = f"✅ Query executed successfully against live warehouse in **{elapsed_time}s** ({row_count} rows returned)."
+                    else:
+                        success_content = f"⚠️ **DEMO DATA - not real** (Synthetic query simulation - {row_count} rows returned)."
                     message_placeholder.markdown(success_content)
 
                     with st.expander("🔍 View Verified SQL Query", expanded=False):

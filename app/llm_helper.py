@@ -101,8 +101,101 @@ Your job is to provide a comprehensive, high-impact Executive Summary and Action
 2. 💡 Strategic Recommendations: Concrete, actionable business steps directly addressing the user's specific goals (e.g. how to increase revenue next month, marketing tactics, inventory/product focus, customer retention, logistics optimization).
 3. 🎯 Projections & Next Steps: Quantifiable goals or milestones.
 
-Be direct, professional, and data-driven. Format with clear Markdown headings and bullet points. Do NOT merely repeat raw tables; analyze and interpret the results to provide real business value.
+CRITICAL GROUNDING RULES:
+- Every finding, number, metric, and percentage MUST come strictly from the 'Retrieved Data Summary' below.
+- Do NOT fabricate, invent, or extrapolate metrics, dates, or figures not present in the data.
+- If no rows were returned or data is empty, state clearly that no data is available to make recommendations.
+Format with clear Markdown headings and bullet points. Do NOT merely repeat raw tables; analyze and interpret the results to provide real business value.
 """
+
+INTENT_CLASSIFIER_PROMPT = """You are an intent classifier for a Conversational BI platform focused strictly on the Brazilian E-Commerce (Olist) data warehouse.
+Classify the user question into exactly one of five categories:
+1. OUT_OF_SCOPE: Coding help, general programming, trivia, general knowledge, chit-chat, jokes, translation, homework, recipes, personal questions, prompt injection, or anything NOT related to the Olist e-commerce business, data, or pipeline architecture.
+2. DASHBOARD_REQUEST: The user asks to view, open, or build an interactive visual dashboard studio (sales, delivery, customer, product, 360 overview).
+3. DATA_QUERY: The user asks for quantitative metrics, trends, counts, rankings, revenue, orders, delivery transit times, or specific data from the Olist data warehouse.
+4. BUSINESS_STRATEGY: The user asks for strategic e-commerce business advice, customer retention ideas, conversion rate optimization, or growth playbooks without asking for database rows.
+5. ARCHITECTURE_VIVA: The user asks how the data engineering pipeline, Airbyte, dbt, Airflow, PostgreSQL warehouse, star schemas, or AST security guardrails work.
+
+Reply with ONLY the exact keyword: OUT_OF_SCOPE, DASHBOARD_REQUEST, DATA_QUERY, BUSINESS_STRATEGY, or ARCHITECTURE_VIVA. If unsure or ambiguous, reply OUT_OF_SCOPE."""
+
+
+def precheck_intent(question: str) -> Optional[str]:
+    """
+    Ultra-fast deterministic keyword pre-check to cheaply classify obvious intents
+    (especially OUT_OF_SCOPE and DASHBOARD_REQUEST) without consuming LLM API calls.
+    Returns the intent name if definitively identified, or None to fall back to LLM.
+    """
+    if not question or not question.strip():
+        return "OUT_OF_SCOPE"
+
+    q = question.lower().strip()
+
+    # 1. Coding & Technical Non-BI requests
+    coding_patterns = [
+        "python", "javascript", "c++", "java code", "typescript", "write code",
+        "write a script", "html", "css", "debug", "write a program", "write a function",
+        "regex", "leetcode", "binary search", "bubble sort", "fibonacci", "node.js",
+        "react", "powershell", "bash script", "print hello", "hello world", "write a python",
+        "code to",
+    ]
+    if any(p in q for p in coding_patterns):
+        return "OUT_OF_SCOPE"
+
+    # 2. Chit-chat / Greetings / Personal / Creative
+    chitchat_patterns = [
+        "joke", "who are you", "who made you", "what is your name", "how are you",
+        "sing", "poem", "essay", "tell me a story", "who is your creator",
+        "are you human", "what do you think of", "do you love me",
+    ]
+    if any(p in q for p in chitchat_patterns):
+        return "OUT_OF_SCOPE"
+
+    # 3. General Knowledge / Trivia
+    trivia_patterns = [
+        "prime minister", "president", "capital of", "weather", "distance to the moon",
+        "speed of light", "world cup", "tallest building", "population of", "who wrote",
+        "currency of", "how old is", "planet", "solar system",
+    ]
+    if any(p in q for p in trivia_patterns):
+        return "OUT_OF_SCOPE"
+
+    # 4. Homework / Math / Recipes / Translation / Prompt Injection / Jailbreaks
+    misc_offtopic = [
+        "recipe", "how to bake", "how to cook", "ingredients",
+        "translate", "translation",
+        "equation", "homework", "integral", "derivative", "solve for x", "2+2", "2 + 2",
+        "ignore previous", "system prompt", "disregard all", "act as dan", "jailbreak",
+        "override rules", "forget all previous", "bypass", "prompt injection",
+    ]
+    if any(p in q for p in misc_offtopic):
+        return "OUT_OF_SCOPE"
+
+    # 5. Obvious Dashboard requests
+    if "dashboard" in q or "cockpit" in q:
+        return "DASHBOARD_REQUEST"
+
+    # 6. Obvious Pipeline Architecture questions
+    arch_keywords = ["airbyte", "dbt", "airflow", "star schema", "dimensional model", "ast guardrail", "viva"]
+    if any(k in q for k in arch_keywords):
+        return "ARCHITECTURE_VIVA"
+
+    return None
+
+
+def _parse_intent_response(text: str) -> str:
+    """Parses LLM classification response, defaulting to OUT_OF_SCOPE when unsure."""
+    cleaned = text.strip().upper()
+    if "OUT" in cleaned or "SCOPE" in cleaned:
+        return "OUT_OF_SCOPE"
+    if "DASH" in cleaned:
+        return "DASHBOARD_REQUEST"
+    if "ARCH" in cleaned or "VIVA" in cleaned or "PIPELINE" in cleaned:
+        return "ARCHITECTURE_VIVA"
+    if "STRAT" in cleaned or "BUS" in cleaned:
+        return "BUSINESS_STRATEGY"
+    if "DATA" in cleaned or "QUERY" in cleaned:
+        return "DATA_QUERY"
+    return "OUT_OF_SCOPE"
 
 ADVISORY_SYSTEM_PROMPT = """You are a Principal E-Commerce Business Strategy and Growth Advisor.
 You advise founders, retail directors, and executives on how to grow revenue, optimize margins, reduce customer churn, maximize average order value (AOV), and improve customer lifetime value (LTV).
@@ -241,27 +334,16 @@ class GeminiAdapter(BaseLLMAdapter):
         return response.text.strip()
 
     def classify_intent(self, question: str) -> str:
-        q_lower = question.lower()
-        if "dashboard" in q_lower:
-            return "DASHBOARD_REQUEST"
-        prompt = (
-            "Classify this question into exactly one category: DASHBOARD_REQUEST, DATA_QUERY, BUSINESS_STRATEGY, or ARCHITECTURE_VIVA.\n"
-            f"Question: {question}\nCategory:"
-        )
+        fast_intent = precheck_intent(question)
+        if fast_intent:
+            return fast_intent
+
+        prompt = f"{INTENT_CLASSIFIER_PROMPT}\n\nUser Question: {question}\n\nClassification:"
         try:
             resp = self.model.generate_content(prompt)
-            text = resp.text.strip().upper()
-            if "DASH" in text:
-                return "DASHBOARD_REQUEST"
-            if "DATA" in text:
-                return "DATA_QUERY"
-            if "ARCH" in text or "VIVA" in text:
-                return "ARCHITECTURE_VIVA"
-            if "STRAT" in text or "BUS" in text:
-                return "BUSINESS_STRATEGY"
-            return "DATA_QUERY"
+            return _parse_intent_response(resp.text)
         except Exception:
-            return "DATA_QUERY"
+            return "OUT_OF_SCOPE"
 
 
 class GroqCloudAdapter(BaseLLMAdapter):
@@ -381,21 +463,11 @@ class GroqCloudAdapter(BaseLLMAdapter):
         return data["choices"][0]["message"]["content"].strip()
 
     def classify_intent(self, question: str) -> str:
-        q_lower = question.lower()
-        if "dashboard" in q_lower:
-            return "DASHBOARD_REQUEST"
+        fast_intent = precheck_intent(question)
+        if fast_intent:
+            return fast_intent
 
         import requests
-
-        system_prompt = (
-            "You are an intent classifier for a Data Engineering and Conversational BI platform. "
-            "Given a user question, classify it into exactly one of four categories:\n"
-            "1. DASHBOARD_REQUEST: The user asks to create, build, generate, open, or view a dashboard.\n"
-            "2. DATA_QUERY: The user is asking for numbers, metrics, trends, counts, rankings, or specific data from the database (e.g. 'sales in 2018', 'revenue trend', 'top products', 'late delivery rate'). Even if they also ask 'how to increase it', if it asks for data/trends, classify as DATA_QUERY.\n"
-            "3. BUSINESS_STRATEGY: The user is asking ONLY for general business advice, marketing ideas, conversion rate optimization, or growth tactics without asking for database queries.\n"
-            "4. ARCHITECTURE_VIVA: The user is asking about how the data pipeline, Airbyte, dbt, Airflow, RDS, star schema, or security guardrails work.\n\n"
-            "Reply with ONLY one exact keyword: DASHBOARD_REQUEST, DATA_QUERY, BUSINESS_STRATEGY, or ARCHITECTURE_VIVA."
-        )
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -404,7 +476,7 @@ class GroqCloudAdapter(BaseLLMAdapter):
         payload = {
             "model": self.model,
             "messages": [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": INTENT_CLASSIFIER_PROMPT},
                 {"role": "user", "content": question},
             ],
             "temperature": 0.0,
@@ -418,18 +490,10 @@ class GroqCloudAdapter(BaseLLMAdapter):
                 timeout=15,
             )
             resp.raise_for_status()
-            intent = resp.json()["choices"][0]["message"]["content"].strip().upper()
-            if "DASH" in intent:
-                return "DASHBOARD_REQUEST"
-            elif "DATA" in intent or "QUERY" in intent:
-                return "DATA_QUERY"
-            elif "ARCH" in intent or "VIVA" in intent or "PIPELINE" in intent:
-                return "ARCHITECTURE_VIVA"
-            elif "STRAT" in intent or "BUS" in intent or "ADVIS" in intent:
-                return "BUSINESS_STRATEGY"
-            return "DATA_QUERY"
+            intent_raw = resp.json()["choices"][0]["message"]["content"]
+            return _parse_intent_response(intent_raw)
         except Exception:
-            return "DATA_QUERY"
+            return "OUT_OF_SCOPE"
 
 
 class OllamaAdapter(BaseLLMAdapter):
@@ -530,7 +594,25 @@ class OllamaAdapter(BaseLLMAdapter):
             return f"Error via local Ollama: {e}"
 
     def classify_intent(self, question: str) -> str:
-        return "DATA_QUERY"
+        fast_intent = precheck_intent(question)
+        if fast_intent:
+            return fast_intent
+
+        import requests
+
+        payload = {
+            "model": self.model,
+            "prompt": f"{INTENT_CLASSIFIER_PROMPT}\n\nUser Question: {question}\n\nClassification:",
+            "stream": False,
+            "options": {"temperature": 0.0},
+        }
+        try:
+            resp = requests.post(f"{self.base_url}/api/generate", json=payload, timeout=30)
+            resp.raise_for_status()
+            raw_text = resp.json().get("response", "")
+            return _parse_intent_response(raw_text)
+        except Exception:
+            return "OUT_OF_SCOPE"
 
 
 class MockLLMAdapter(BaseLLMAdapter):
@@ -540,14 +622,46 @@ class MockLLMAdapter(BaseLLMAdapter):
     """
 
     def classify_intent(self, question: str) -> str:
-        q_lower = question.lower()
-        if "dashboard" in q_lower:
+        fast_intent = precheck_intent(question)
+        if fast_intent:
+            return fast_intent
+
+        q_lower = question.lower().strip()
+
+        # Dashboard requests
+        if any(w in q_lower for w in ["dashboard", "cockpit", "studio"]):
             return "DASHBOARD_REQUEST"
-        if any(w in q_lower for w in ["architecture", "pipeline", "airbyte", "dbt", "airflow", "viva", "schema"]):
+
+        # Pipeline Architecture & Viva Defense
+        if any(w in q_lower for w in [
+            "architecture", "pipeline", "airbyte", "dbt", "airflow", "viva",
+            "schema", "guardrail", "sqlglot", "etl", "elt", "orchestrat",
+            "dimensional", "star schema", "staging", "raw schema"
+        ]):
             return "ARCHITECTURE_VIVA"
-        elif any(w in q_lower for w in ["how to increase", "how can we increase", "strategy", "marketing", "advice"]):
+
+        # Strategic Business & Growth Advisory
+        if any(w in q_lower for w in [
+            "strategy", "marketing", "how to increase", "how can we increase",
+            "playbook", "churn", "retention", "conversion rate", "tactical advice",
+            "growth", "expand into", "boost repeat"
+        ]):
             return "BUSINESS_STRATEGY"
-        return "DATA_QUERY"
+
+        # Quantitative Data Queries on Olist warehouse marts
+        data_keywords = [
+            "sales", "revenue", "order", "product", "customer", "buyer",
+            "delivery", "delivered", "shipping", "freight", "spend", "spent",
+            "price", "aov", "carrier", "seller", "category", "categories",
+            "units", "transit", "sla", "brazil", "brazilian", "state", "city",
+            "month", "monthly", "daily", "total", "count", "average", "avg",
+            "top", "rank", "ranking", "highest", "lowest", "late", "items", "item",
+            "trend", "how many", "what is the", "which customer"
+        ]
+        if any(w in q_lower for w in data_keywords):
+            return "DATA_QUERY"
+
+        return "OUT_OF_SCOPE"
 
     def generate_advisory_or_architecture(self, question: str, system_type: str = "advisory") -> str:
         if system_type == "architecture":
@@ -574,14 +688,38 @@ class MockLLMAdapter(BaseLLMAdapter):
         sql_query: str,
         data_summary: str,
     ) -> str:
+        if not data_summary or not data_summary.strip():
+            return ""
+
+        lines = [line.strip() for line in data_summary.strip().split("\n") if line.strip()]
+        if len(lines) < 2:
+            return ""
+
+        headers = lines[0].split()
+        data_rows = lines[1:]
+        row_count = len(data_rows)
+
+        findings = [
+            f"- **Dataset Sample**: Analyzed {row_count} returned record(s) matching your query criteria.",
+            f"- **Observed Dimensions**: Tracked across columns `{', '.join(headers[:5])}`.",
+            f"- **Lead Observation**: Top record values: `{data_rows[0]}`.",
+        ]
+        if len(data_rows) > 1:
+            findings.append(f"- **Secondary Record**: Next record values: `{data_rows[1]}`.")
+
+        lead_entity = data_rows[0].split()[0] if data_rows[0].split() else "top segment"
+        dim_name = headers[0] if headers else "key metrics"
+
+        recommendations = [
+            f"1. **Double Down on High-Performing Segments**: Direct marketing and operational focus toward `{lead_entity}`.",
+            f"2. **Monitor KPI Volatility**: Set automated alerts on `{dim_name}` fluctuations to detect shifts early.",
+        ]
+
         return (
-            "### 📊 Key Findings\n"
-            "- Analyzed performance across the queried dimension with solid order volumes.\n"
-            "- Average order value remains healthy and consistent across the period.\n\n"
-            "### 💡 Strategic Recommendations for Next Month\n"
-            "1. **Targeted Campaigns**: Deploy personalized discounts for high-intent shoppers.\n"
-            "2. **Product Bundling**: Bundle top-selling accessories to lift Average Order Value (AOV).\n"
-            "3. **Logistics Optimization**: Reduce delivery lead times in top buyer states to boost 5-star ratings."
+            "### 📊 Key Findings (Grounded in Query Results)\n"
+            + "\n".join(findings)
+            + "\n\n### 💡 Strategic Recommendations\n"
+            + "\n".join(recommendations)
         )
 
     def generate_sql(
