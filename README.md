@@ -3,8 +3,7 @@
 [![CI Test Suite](https://github.com/nexusbi/nexusbi/actions/workflows/ci.yml/badge.svg)](https://github.com/nexusbi/nexusbi/actions/workflows/ci.yml)
 [![dbt Tests](https://img.shields.io/badge/dbt%20tests-45%20passed-brightgreen.svg)](dbt/olist_dbt/models/marts/_marts__models.yml)
 [![AST Guardrail Tests](https://img.shields.io/badge/AST%20Guardrail-59%20passed-blue.svg)](tests/test_sql_guardrail.py)
-[![Benchmark Accuracy](https://img.shields.io/badge/Benchmark%20Mean%20Accuracy-81.1%25%20(3--run)-success.svg)](benchmarks/results/REPORT.md)
-[![Heldout Set](https://img.shields.io/badge/Heldout%20Accuracy-100%25%20(10%2F10)-blue.svg)](benchmarks/results/heldout_REPORT.md)
+[![Benchmark Accuracy](https://img.shields.io/badge/Benchmark%20Accuracy-83.3%25%20strict%20%7C%2087.8%25%20lenient-success.svg)](benchmarks/results/REPORT.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 NexusBI is a modern data engineering pipeline and conversational business intelligence application built by a 3rd-year computer engineering student. It translates natural language questions into verified, read-only SQL queries over **100,000 real-world e-commerce transactions** (the Brazilian Olist dataset) using a deterministic **Abstract Syntax Tree (AST) security guardrail**.
@@ -24,7 +23,7 @@ All figures below are generated directly by our test suites, dbt assertions, and
 | **Monthly Logistics SLA Points** | **23** months tracking delivery lead times and delays | `marts.mart_delivery_performance` |
 | **Automated dbt Data Tests** | **45 passed** (0 errors, 0 warnings) | `dbt test` against warehouse |
 | **AST Guardrail Unit Tests** | **59 passed** (22 allowed, 36 blocked vectors) | `pytest -v tests/test_sql_guardrail.py` |
-| **Text-to-SQL Benchmark Score** | **81.1% mean** over 3 live runs (80.0% min, 83.3% max); **100.0%** held-out set (10/10) | `benchmarks/run_benchmark.py --runs 3` |
+| **Text-to-SQL Benchmark Score** | **83.3% strict** / **87.8% lenient** mean over 3 live runs (v1 baseline: 73.3%); 10/10 on sanity check set | `benchmarks/run_benchmark.py --runs 3` |
 | **LLM Generation Latency** | ~0.5 to 1.5 seconds per query | Cloud Groq API (`openai/gpt-oss-120b`) |
 
 ---
@@ -155,13 +154,21 @@ make benchmark
 ```
 
 ### Benchmark Results (30 Questions, Evaluated Over 3 Live Runs at Temperature 0.0):
-- **Mean Accuracy**: **`81.1%`** (Run 1: 83.3%, Run 2: 80.0%, Run 3: 80.0%; initial strict baseline was `73.3%` / 22/30)
-- **Flipping Questions**: 3 questions flipped across runs (`q14`, `q22`, `q30`), with 27/30 perfectly stable.
-- **Separate Held-Out Evaluation Set**: **`100.0%`** (10/10 passed on un-tuned `heldout.yaml`).
-
-Scoring fixes resolved 5 artificial mismatches (aligning expected columns to question prompts in q19/q25/q30, normalizing date/month formats in q21, and refining q29's prompt). The semantic layer rules improved cross-mart join behavior (q26), but caused regressions: specifically in q07 where the weighted-average rule diverged from the unweighted ground truth, in q22 due to extra projected columns, and in q23 from CTE aggregation syntax errors. Furthermore, weighted-average and rolling-window queries remain weak areas for the LLM.
+- **Strict Mean Accuracy**: **`83.3%`** (25/30 passed consistently across all 3 runs; initial strict baseline was `73.3%` / 22/30)
+- **Lenient Mean Accuracy**: **`87.8%`** (26 to 27 passed; permits harmless extra helper columns when all expected metrics and rows match)
+- **Strict Flipping Questions**: 2 questions flipped across runs (`q14`, `q23`), with 28/30 questions completely deterministic.
+- **q07 Correction**: Verified against 96,470 order-level transactions in `staging.stg_orders` where true mean delivery days is 12.50 days. Ground truth was updated from the naive unweighted monthly mean (14.31) to the true volume-weighted mean (12.50).
+- **Held-Out Evaluation Set**: **`100.0%`** (10/10 passed on `heldout.yaml`). Note: This is a small 10-question sanity check written alongside the project, not an independent test, and is reported separately from the headline benchmark accuracy.
 
 See the multi-run report in [benchmarks/results/REPORT.md](benchmarks/results/REPORT.md), multi-run JSON in [benchmarks/results/multi_run.json](benchmarks/results/multi_run.json), held-out report in [benchmarks/results/heldout_REPORT.md](benchmarks/results/heldout_REPORT.md), and v1 baseline in [benchmarks/results/v1_REPORT.md](benchmarks/results/v1_REPORT.md).
+
+---
+
+## ⚠️ Known Limitations
+
+1. **CTE Scalar Division in Complex Ratios**: The model sometimes mixes a scalar aggregate with a CTE column in the same `SELECT` statement without proper `GROUP BY` grouping, which PostgreSQL rejects with an execution error (observed in `q23`).
+2. **Auxiliary Column Projection**: The model occasionally includes intermediate calculation columns (such as component totals alongside ratios in `q22`), which causes strict shape mismatches while passing lenient value verification.
+3. **Rolling-Window Calculations**: Multi-step window functions over date intervals (such as 7-day rolling revenue in `q28`) require careful framing to ensure the model filters after window computation rather than before.
 
 ---
 

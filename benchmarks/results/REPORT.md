@@ -1,83 +1,75 @@
 # 📊 Text-to-SQL Accuracy & Variance Benchmark Report
 
-- **Timestamp**: `2026-11-09T08:31:11.335129+00:00`
+- **Timestamp**: `2026-11-09T09:24:03.418323+00:00`
 - **Benchmark Mode**: `live`
 - **Evaluation Set**: `main`
 - **LLM Evaluated**: `GroqCloudAdapter` (Temperature: `0.0`)
 - **Runs Evaluated**: `3`
-- **Mean Accuracy**: **`81.11%`** (Min: `80.0%`, Max: `83.33%`)
-- **Flipping Questions**: `3`
-- **Average Query Latency**: `2276.01 ms`
+- **Strict Mean Accuracy**: **`83.33%`** (Min: `83.33%`, Max: `83.33%`)
+- **Lenient Mean Accuracy**: **`87.78%`** (Min: `86.67%`, Max: `90.0%`)
+- **Strict Flipping Questions**: `2`
+- **Average Query Latency**: `1983.39 ms`
+
+> [!NOTE]
+> **Strict scoring** requires exact matrix shape match (1:1 column projection).
+> **Lenient scoring** requires matching row count and all expected column values, but permits harmless extra helper columns.
 
 ## 📈 Multi-Run Variance Breakdown
 
-| Run Index | Passed Questions | Total Questions | Accuracy % | Avg Latency (ms) |
-| :---: | :---: | :---: | :---: | :---: |
-| Run 1 | 25 | 30 | **83.33%** | 1966.64 |
-| Run 2 | 24 | 30 | **80.0%** | 1998.44 |
-| Run 3 | 24 | 30 | **80.0%** | 2276.01 |
+| Run Index | Strict Passed | Strict % | Lenient Passed | Lenient % | Total Qs | Avg Latency (ms) |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| Run 1 | 25 | **83.33%** | 26 | **86.67%** | 30 | 2030.67 |
+| Run 2 | 25 | **83.33%** | 26 | **86.67%** | 30 | 2170.87 |
+| Run 3 | 25 | **83.33%** | 27 | **90.0%** | 30 | 1983.39 |
 
 ## 🔄 Question Stability & Flips Across Runs
 
-The following 3 question(s) flipped between passing and failing across evaluation runs:
+The following 2 question(s) flipped under strict scoring across evaluation runs:
 
-| Question ID | Run 1 | Run 2 | Run 3 | Stability Note |
+| Question ID | Run 1 (Strict) | Run 2 (Strict) | Run 3 (Strict) | Lenient Outcome |
 | :--- | :---: | :---: | :---: | :--- |
-| `q14` | ❌ FAIL | ✅ PASS | ❌ FAIL | Passed 1/3 runs |
-| `q22` | ✅ PASS | ❌ FAIL | ❌ FAIL | Passed 1/3 runs |
-| `q30` | ✅ PASS | ❌ FAIL | ✅ PASS | Passed 2/3 runs |
+| `q14` | ✅ PASS | ✅ PASS | ❌ FAIL | 100% Pass |
+| `q23` | ❌ FAIL | ❌ FAIL | ✅ PASS | 1/3 Pass |
 
 ## 🎯 Accuracy by Difficulty (Latest Run)
 
-| Difficulty | Total Questions | Passed | Accuracy % |
-| :--- | :---: | :---: | :---: |
-| **Easy** | 10 | 9 | 90.0% |
-| **Medium** | 12 | 10 | 83.33% |
-| **Hard** | 8 | 5 | 62.5% |
+| Difficulty | Total Questions | Strict Passed | Strict % | Lenient Passed | Lenient % |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **Easy** | 10 | 10 | 100.0% | 10 | 100.0% |
+| **Medium** | 12 | 10 | 83.33% | 12 | 100.0% |
+| **Hard** | 8 | 5 | 62.5% | 5 | 62.5% |
 
-## 🔬 Failure Analysis (Latest Run)
+## 🔬 Failure Analysis (Latest Run - Strict Scoring)
 
-| Question ID | Difficulty | Question | Reason |
-| :--- | :---: | :--- | :--- |
-| `q07` | easy | What was the average delivery time in days across all months? | Value mismatch at row 0, col 0: 12.5 != 14.309130434782608 (tol=0.05) |
-| `q14` | medium | Show the top 3 product categories by average unit price with at least 50 units sold. | Shape mismatch: generated (3, 2) vs expected (3, 3) |
-| `q22` | medium | Which 5 product categories have the highest total revenue per unit sold? | Shape mismatch: generated (5, 4) vs expected (5, 2) |
-| `q23` | hard | What percentage of total revenue came from the top 3 product categories? | SQL Execution Error: column "total.total_revenue" must appear in the GROUP BY clause or be used in an aggregate function
-LINE 1: ...UM(CASE WHEN rn <= 3 THEN category_revenue END) / total.tota...
-                                                             ^
- |
-| `q28` | hard | What was the 7-day rolling average revenue for the last 7 days of recorded daily sales? | Shape mismatch: generated (7, 2) vs expected (7, 3) |
-| `q29` | hard | Compare the average spend of single-order buyers versus multi-order repeat buyers. Return one row per buyer type (single-order vs repeat) with the average spend. | String mismatch at row 0, col 0: 'repeat' != 'Repeat Buyer' |
+| Question ID | Difficulty | Question | Reason (Strict) | Passed Lenient? |
+| :--- | :---: | :--- | :--- | :---: |
+| `q14` | medium | Show the top 3 product categories by average unit price with at least 50 units sold. | Value mismatch at row 0, col 1: 203.0 != 1098.3405418719212 (tol=0.05) | ✅ Yes |
+| `q22` | medium | Which 5 product categories have the highest total revenue per unit sold? | Shape mismatch: generated (5, 4) vs expected (5, 2) | ✅ Yes |
+| `q28` | hard | What was the 7-day rolling average revenue for the last 7 days of recorded daily sales? | Shape mismatch: generated (7, 2) vs expected (7, 3) | ❌ No |
+| `q29` | hard | Compare the average spend of single-order buyers versus multi-order repeat buyers. Return one row per buyer type (single-order vs repeat) with the average spend. | String mismatch at row 0, col 0: 'repeat' != 'Repeat Buyer' | ❌ No |
+| `q30` | hard | Identify months in 2018 where the late delivery rate was above 5 percent. | Shape mismatch: generated (8, 1) vs expected (6, 2) | ❌ No |
 
 ### Detailed Failure Diffs
 
-#### `q07` - What was the average delivery time in days across all months?
-- **Failure Reason**: Value mismatch at row 0, col 0: 12.5 != 14.309130434782608 (tol=0.05)
-```sql
--- Generated SQL
-SELECT ROUND(
-         SUM(avg_delivery_days * total_delivered_orders)::NUMERIC /
-         NULLIF(SUM(total_delivered_orders), 0),
-         2
-       ) AS avg_delivery_time_days
-FROM marts.mart_delivery_performance;
-
--- Expected Ground Truth SQL
-SELECT AVG(avg_delivery_days) AS avg_delivery_days
-FROM marts.mart_delivery_performance;
-
-```
-
 #### `q14` - Show the top 3 product categories by average unit price with at least 50 units sold.
-- **Failure Reason**: Shape mismatch: generated (3, 2) vs expected (3, 3)
+- **Strict Failure Reason**: Value mismatch at row 0, col 1: 203.0 != 1098.3405418719212 (tol=0.05)
+- **Lenient Outcome**: PASSED (Contains all expected columns; extra columns present)
 ```sql
 -- Generated SQL
+WITH category_stats AS (
+    SELECT
+        category_name,
+        SUM(units_sold) AS total_units_sold,
+        SUM(avg_unit_price * units_sold)::NUMERIC / NULLIF(SUM(units_sold), 0) AS avg_unit_price
+    FROM marts.mart_top_products
+    GROUP BY category_name
+    HAVING SUM(units_sold) >= 50
+)
 SELECT
     category_name,
-    AVG(avg_unit_price) AS avg_unit_price
-FROM marts.mart_top_products
-WHERE units_sold >= 50
-GROUP BY category_name
+    total_units_sold,
+    avg_unit_price
+FROM category_stats
 ORDER BY avg_unit_price DESC
 LIMIT 3;
 
@@ -94,7 +86,8 @@ LIMIT 3;
 ```
 
 #### `q22` - Which 5 product categories have the highest total revenue per unit sold?
-- **Failure Reason**: Shape mismatch: generated (5, 4) vs expected (5, 2)
+- **Strict Failure Reason**: Shape mismatch: generated (5, 4) vs expected (5, 2)
+- **Lenient Outcome**: PASSED (Contains all expected columns; extra columns present)
 ```sql
 -- Generated SQL
 SELECT
@@ -117,77 +110,33 @@ LIMIT 5;
 
 ```
 
-#### `q23` - What percentage of total revenue came from the top 3 product categories?
-- **Failure Reason**: SQL Execution Error: column "total.total_revenue" must appear in the GROUP BY clause or be used in an aggregate function
-LINE 1: ...UM(CASE WHEN rn <= 3 THEN category_revenue END) / total.tota...
-                                                             ^
-
-```sql
--- Generated SQL
-WITH category_rev AS (
-    SELECT
-        category_name,
-        SUM(total_revenue) AS category_revenue
-    FROM marts.mart_top_products
-    GROUP BY category_name
-),
-ranked AS (
-    SELECT
-        category_name,
-        category_revenue,
-        ROW_NUMBER() OVER (ORDER BY category_revenue DESC) AS rn
-    FROM category_rev
-),
-total AS (
-    SELECT SUM(category_revenue) AS total_revenue
-    FROM category_rev
-)
-SELECT
-    ROUND(
-        (SUM(CASE WHEN rn <= 3 THEN category_revenue END) / total.total_revenue) * 100,
-        2
-    ) AS top_3_category_revenue_pct
-FROM ranked
-CROSS JOIN total;
-
--- Expected Ground Truth SQL
-WITH cat_rev AS (
-    SELECT category_name, SUM(total_revenue) AS rev
-    FROM marts.mart_top_products
-    GROUP BY category_name
-),
-top3 AS (
-    SELECT SUM(rev) AS top3_rev
-    FROM (SELECT rev FROM cat_rev ORDER BY rev DESC LIMIT 3) sub
-),
-total AS (
-    SELECT SUM(rev) AS all_rev FROM cat_rev
-)
-SELECT ROUND((top3.top3_rev / total.all_rev) * 100, 2) AS top3_revenue_pct
-FROM top3, total;
-
-```
-
 #### `q28` - What was the 7-day rolling average revenue for the last 7 days of recorded daily sales?
-- **Failure Reason**: Shape mismatch: generated (7, 2) vs expected (7, 3)
+- **Strict Failure Reason**: Shape mismatch: generated (7, 2) vs expected (7, 3)
+- **Lenient Outcome**: FAILED (Fewer columns in generated (2) than expected (3))
 ```sql
 -- Generated SQL
-WITH ranked AS (
+WITH daily AS (
     SELECT
         sales_date,
         total_revenue,
         SUM(total_revenue) OVER (
             ORDER BY sales_date
             ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
-        ) / 7.0 AS rolling_7day_avg_revenue,
-        ROW_NUMBER() OVER (ORDER BY sales_date DESC) AS rn_desc
+        ) / 7.0 AS rolling_7day_avg_revenue
     FROM marts.mart_daily_sales
+),
+ranked AS (
+    SELECT
+        sales_date,
+        rolling_7day_avg_revenue,
+        ROW_NUMBER() OVER (ORDER BY sales_date DESC) AS rn
+    FROM daily
 )
 SELECT
     sales_date,
-    rolling_7day_avg_revenue
+    ROUND(rolling_7day_avg_revenue, 2) AS rolling_7day_avg_revenue
 FROM ranked
-WHERE rn_desc <= 7
+WHERE rn <= 7
 ORDER BY sales_date ASC;
 
 -- Expected Ground Truth SQL
@@ -204,7 +153,8 @@ LIMIT 7;
 ```
 
 #### `q29` - Compare the average spend of single-order buyers versus multi-order repeat buyers. Return one row per buyer type (single-order vs repeat) with the average spend.
-- **Failure Reason**: String mismatch at row 0, col 0: 'repeat' != 'Repeat Buyer'
+- **Strict Failure Reason**: String mismatch at row 0, col 0: 'repeat' != 'Repeat Buyer'
+- **Lenient Outcome**: FAILED (Expected column(s) [0] not found among generated columns)
 ```sql
 -- Generated SQL
 SELECT
@@ -222,5 +172,24 @@ SELECT CASE WHEN total_orders = 1 THEN 'Single Order' ELSE 'Repeat Buyer' END AS
        ROUND(AVG(total_spend), 2) AS avg_spend
 FROM marts.mart_customer_summary
 GROUP BY 1;
+
+```
+
+#### `q30` - Identify months in 2018 where the late delivery rate was above 5 percent.
+- **Strict Failure Reason**: Shape mismatch: generated (8, 1) vs expected (6, 2)
+- **Lenient Outcome**: FAILED (Row count mismatch: generated 8 vs expected 6)
+```sql
+-- Generated SQL
+SELECT year_month
+FROM marts.mart_delivery_performance
+WHERE EXTRACT(YEAR FROM order_month) = 2018
+  AND pct_late_vs_estimated > 0.05
+ORDER BY year_month;
+
+-- Expected Ground Truth SQL
+SELECT year_month, pct_late_vs_estimated
+FROM marts.mart_delivery_performance
+WHERE year_month LIKE '2018-%' AND pct_late_vs_estimated > 5.0
+ORDER BY pct_late_vs_estimated DESC;
 
 ```

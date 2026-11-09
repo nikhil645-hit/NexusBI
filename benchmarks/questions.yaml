@@ -78,9 +78,9 @@ questions:
     difficulty: easy
     question: "What was the average delivery time in days across all months?"
     expected_sql: |
-      SELECT AVG(avg_delivery_days) AS avg_delivery_days
+      SELECT SUM(avg_delivery_days * total_delivered_orders) / NULLIF(SUM(total_delivered_orders), 0) AS avg_delivery_days
       FROM marts.mart_delivery_performance;
-    notes: "Simple average of monthly delivery times."
+    notes: "Corrected after review: v1 expected SQL used an unweighted mean of monthly averages."
 
   - id: q08
     difficulty: easy

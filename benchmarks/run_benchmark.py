@@ -4,6 +4,11 @@
 # Evaluates text-to-SQL generation accuracy against hand-crafted ground truth
 # queries on Brazilian E-Commerce data marts.
 #
+# Scoring Policy:
+#   1. Strict: Requires exact DataFrame matrix dimensions and 1:1 column match.
+#   2. Lenient: Requires matching row count and presence of all expected column
+#      values in generated result (allows extra generated helper columns).
+#
 # Flags:
 #   --mock       Runs benchmark in mock/smoke-test mode for CI without API keys.
 #   --limit N    Runs only the first N questions.
@@ -19,7 +24,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import pandas as pd
@@ -52,6 +57,39 @@ def load_questions(question_set: str = "main") -> List[Dict[str, Any]]:
     return data.get("questions", [])
 
 
+def _values_match(val_g: Any, val_e: Any, float_tolerance: float = 0.05) -> bool:
+    """Helper comparing two scalar values with float tolerance, None handling, and date normalization."""
+    if pd.isna(val_g) and pd.isna(val_e):
+        return True
+    if pd.isna(val_g) != pd.isna(val_e):
+        return False
+
+    # Numeric comparison with relative & absolute tolerance
+    try:
+        num_g = float(val_g)
+        num_e = float(val_e)
+        diff = abs(num_g - num_e)
+        denom = max(abs(num_e), 1e-9)
+        rel_diff = diff / denom
+        if rel_diff <= float_tolerance or diff <= float_tolerance:
+            return True
+        return False
+    except (ValueError, TypeError):
+        pass
+
+    # String comparison (case-insensitive & whitespace-trimmed)
+    str_g = str(val_g).strip().lower()
+    str_e = str(val_e).strip().lower()
+
+    # Date format normalization: treat '2018-01-01' and '2018-01' as equal
+    norm_g = re.sub(r"^(\d{4}-\d{2})(-\d{2})?.*$", r"\1", str_g)
+    norm_e = re.sub(r"^(\d{4}-\d{2})(-\d{2})?.*$", r"\1", str_e)
+    if norm_g == norm_e:
+        return True
+
+    return str_g == str_e
+
+
 def compare_result_sets(
     df_gen: pd.DataFrame,
     df_exp: pd.DataFrame,
@@ -59,9 +97,8 @@ def compare_result_sets(
     float_tolerance: float = 0.05,
 ) -> Tuple[bool, str]:
     """
-    Compares two query result sets semantically.
-    Ignores column names/aliases and casing.
-    Allows small float tolerance for rounding differences.
+    Strict comparator:
+    Requires exact shape match, row count, column count, and cell-by-cell equality.
     """
     if df_gen is None or df_exp is None:
         return False, "One of the result DataFrames is None"
@@ -75,14 +112,12 @@ def compare_result_sets(
             f"Shape mismatch: generated {df_gen.shape} vs expected {df_exp.shape}",
         )
 
-    # Convert to numpy arrays without column names
     arr_gen = df_gen.to_numpy()
     arr_exp = df_exp.to_numpy()
 
-    # If row order does not strictly matter and >1 row, sort by first numeric or string column
+    # If row order does not strictly matter and >1 row, sort by first column
     if not order_sensitive and len(arr_gen) > 1:
         try:
-            # Sort lexicographically by first column representation
             idx_gen = np.lexsort([arr_gen[:, 0].astype(str)])
             idx_exp = np.lexsort([arr_exp[:, 0].astype(str)])
             arr_gen = arr_gen[idx_gen]
@@ -95,43 +130,109 @@ def compare_result_sets(
             val_g = arr_gen[r, c]
             val_e = arr_exp[r, c]
 
-            # Handle None / NaN
-            if pd.isna(val_g) and pd.isna(val_e):
-                continue
-            if pd.isna(val_g) != pd.isna(val_e):
-                return False, f"Null mismatch at row {r}, col {c}: {val_g} != {val_e}"
-
-            # Numeric comparison with relative & absolute tolerance
-            try:
-                num_g = float(val_g)
-                num_e = float(val_e)
-                diff = abs(num_g - num_e)
-                denom = max(abs(num_e), 1e-9)
-                rel_diff = diff / denom
-                if rel_diff > float_tolerance and diff > float_tolerance:
+            if not _values_match(val_g, val_e, float_tolerance):
+                try:
+                    num_g = float(val_g)
+                    num_e = float(val_e)
                     return (
                         False,
                         f"Value mismatch at row {r}, col {c}: {num_g} != {num_e} (tol={float_tolerance})",
                     )
-                continue
-            except (ValueError, TypeError):
-                pass
+                except (ValueError, TypeError):
+                    return (
+                        False,
+                        f"String mismatch at row {r}, col {c}: '{val_g}' != '{val_e}'",
+                    )
 
-            # String comparison (case-insensitive & whitespace-trimmed)
-            str_g = str(val_g).strip().lower()
-            str_e = str(val_e).strip().lower()
+    return True, "PASSED"
 
-            # Date format normalization: treat '2018-01-01' and '2018-01' as equal
-            norm_g = re.sub(r"^(\d{4}-\d{2})(-\d{2})?.*$", r"\1", str_g)
-            norm_e = re.sub(r"^(\d{4}-\d{2})(-\d{2})?.*$", r"\1", str_e)
-            if norm_g == norm_e:
-                continue
 
-            if str_g != str_e:
-                return (
-                    False,
-                    f"String mismatch at row {r}, col {c}: '{val_g}' != '{val_e}'",
+def compare_result_sets_lenient(
+    df_gen: pd.DataFrame,
+    df_exp: pd.DataFrame,
+    order_sensitive: bool = False,
+    float_tolerance: float = 0.05,
+) -> Tuple[bool, str]:
+    """
+    Lenient comparator:
+    - Pass if every expected column's values appear in the generated result
+      (matched by values, not names).
+    - Row count must match.
+    - Extra generated columns are allowed.
+    - Ordering rules and numeric tolerance stay unchanged.
+    """
+    if df_gen is None or df_exp is None:
+        return False, "One of the result DataFrames is None"
+
+    if df_gen.empty and df_exp.empty:
+        return True, "Both result sets are empty"
+
+    if len(df_gen) != len(df_exp):
+        return (
+            False,
+            f"Row count mismatch: generated {len(df_gen)} vs expected {len(df_exp)}",
+        )
+
+    if df_gen.shape[1] < df_exp.shape[1]:
+        return (
+            False,
+            f"Fewer columns in generated ({df_gen.shape[1]}) than expected ({df_exp.shape[1]})",
+        )
+
+    arr_gen = df_gen.to_numpy()
+    arr_exp = df_exp.to_numpy()
+    num_rows = len(arr_exp)
+    num_exp_cols = arr_exp.shape[1]
+    num_gen_cols = arr_gen.shape[1]
+
+    # If row order does not strictly matter, align rows by sorting on first matching key
+    if not order_sensitive and num_rows > 1:
+        try:
+            idx_exp = np.lexsort([arr_exp[:, 0].astype(str)])
+            arr_exp = arr_exp[idx_exp]
+
+            best_gen_sort_col = 0
+            for g_col in range(num_gen_cols):
+                matches = sum(
+                    1 for r in range(num_rows)
+                    if _values_match(arr_gen[r, g_col], arr_exp[r, 0], float_tolerance)
                 )
+                if matches == num_rows:
+                    best_gen_sort_col = g_col
+                    break
+            idx_gen = np.lexsort([arr_gen[:, best_gen_sort_col].astype(str)])
+            arr_gen = arr_gen[idx_gen]
+        except Exception:
+            pass
+
+    # Match each expected column to a unique generated column
+    assigned_gen_cols: Set[int] = set()
+    unmatched_exp_cols: List[int] = []
+
+    for c_e in range(num_exp_cols):
+        matched_gen_col: Optional[int] = None
+        for c_g in range(num_gen_cols):
+            if c_g in assigned_gen_cols:
+                continue
+            col_match = True
+            for r in range(num_rows):
+                if not _values_match(arr_gen[r, c_g], arr_exp[r, c_e], float_tolerance):
+                    col_match = False
+                    break
+            if col_match:
+                matched_gen_col = c_g
+                break
+
+        if matched_gen_col is not None:
+            assigned_gen_cols.add(matched_gen_col)
+        else:
+            unmatched_exp_cols.append(c_e)
+
+    if unmatched_exp_cols:
+        return (
+            False,
+            f"Expected column(s) {unmatched_exp_cols} not found among generated columns",
+        )
 
     return True, "PASSED"
 
@@ -158,7 +259,7 @@ def run_single_pass(
     pass_index: int = 1,
     total_passes: int = 1,
 ) -> Dict[str, Any]:
-    """Executes a single benchmark iteration across questions."""
+    """Executes a single benchmark iteration across questions with dual strict/lenient evaluation."""
     results: List[Dict[str, Any]] = []
     total_latency_ms = 0.0
 
@@ -207,68 +308,99 @@ def run_single_pass(
         total_latency_ms += latency_ms
 
         # Step 3: Validate and execute generated SQL
-        passed = False
+        passed_strict = False
+        passed_lenient = False
         blocked_by_guardrail = False
-        reason = ""
+        reason_strict = ""
+        reason_lenient = ""
 
         if gen_error:
-            reason = gen_error
+            reason_strict = gen_error
+            reason_lenient = gen_error
         else:
             is_valid, gen_df, gen_info = execute_with_guardrail(generated_sql)
             if not is_valid:
                 blocked_by_guardrail = True
-                reason = gen_info
+                reason_strict = gen_info
+                reason_lenient = gen_info
             elif exp_df is not None and gen_df is not None:
-                matched, cmp_reason = compare_result_sets(
+                matched_strict, cmp_reason_strict = compare_result_sets(
                     gen_df, exp_df, order_sensitive=order_matters
                 )
-                passed = matched
-                reason = cmp_reason if not matched else "PASSED"
+                matched_lenient, cmp_reason_lenient = compare_result_sets_lenient(
+                    gen_df, exp_df, order_sensitive=order_matters
+                )
+                passed_strict = matched_strict
+                passed_lenient = matched_lenient
+                reason_strict = cmp_reason_strict if not matched_strict else "PASSED"
+                reason_lenient = cmp_reason_lenient if not matched_lenient else "PASSED"
             else:
-                passed = False
-                reason = "Comparison failed: missing DataFrame"
+                passed_strict = False
+                passed_lenient = False
+                reason_strict = "Comparison failed: missing DataFrame"
+                reason_lenient = "Comparison failed: missing DataFrame"
 
-        status_icon = "PASS" if passed else "FAIL"
-        print(f"[{status_icon}] {q_id} ({q_diff.upper()}): {q_text[:45]}... ({latency_ms}ms)")
-        if not passed and verbose:
-            print(f"       Generated: {generated_sql[:60]}...")
-            print(f"       Reason:    {reason}")
+        status_icon = (
+            "PASS"
+            if passed_strict
+            else ("PASS-LENIENT" if passed_lenient else "FAIL")
+        )
+        print(f"[{status_icon}] {q_id} ({q_diff.upper()}): {q_text[:45]}... ({latency_ms}ms)", flush=True)
+        if not passed_strict and verbose:
+            print(f"       Generated: {generated_sql[:60]}...", flush=True)
+            print(f"       Reason (Strict):  {reason_strict}", flush=True)
+            if passed_lenient:
+                print("       Status (Lenient): PASSED (extra columns allowed)", flush=True)
 
         results.append({
             "id": q_id,
             "difficulty": q_diff,
             "question": q_text,
-            "passed": passed,
+            "passed": passed_strict,
+            "passed_strict": passed_strict,
+            "passed_lenient": passed_lenient,
             "guardrail_blocked": blocked_by_guardrail,
             "latency_ms": latency_ms,
-            "reason": reason,
+            "reason": reason_strict,
+            "reason_strict": reason_strict,
+            "reason_lenient": reason_lenient,
             "generated_sql": generated_sql,
             "expected_sql": expected_sql,
         })
 
     # Metrics computation
     total_count = len(results)
-    passed_count = sum(1 for r in results if r["passed"])
-    overall_acc = round((passed_count / total_count) * 100, 2) if total_count else 0.0
+    passed_strict_count = sum(1 for r in results if r["passed_strict"])
+    passed_lenient_count = sum(1 for r in results if r["passed_lenient"])
+    strict_acc = round((passed_strict_count / total_count) * 100, 2) if total_count else 0.0
+    lenient_acc = round((passed_lenient_count / total_count) * 100, 2) if total_count else 0.0
     avg_latency = round(total_latency_ms / total_count, 2) if total_count else 0.0
 
     diff_breakdown: Dict[str, Dict[str, Any]] = {}
     for diff in ["easy", "medium", "hard"]:
         diff_items = [r for r in results if r["difficulty"] == diff]
         diff_total = len(diff_items)
-        diff_passed = sum(1 for r in diff_items if r["passed"])
-        diff_acc = round((diff_passed / diff_total) * 100, 2) if diff_total else 0.0
+        diff_strict_pass = sum(1 for r in diff_items if r["passed_strict"])
+        diff_lenient_pass = sum(1 for r in diff_items if r["passed_lenient"])
         diff_breakdown[diff] = {
             "total": diff_total,
-            "passed": diff_passed,
-            "accuracy_pct": diff_acc,
+            "passed": diff_strict_pass,
+            "passed_strict": diff_strict_pass,
+            "passed_lenient": diff_lenient_pass,
+            "accuracy_pct": round((diff_strict_pass / diff_total) * 100, 2) if diff_total else 0.0,
+            "strict_accuracy_pct": round((diff_strict_pass / diff_total) * 100, 2) if diff_total else 0.0,
+            "lenient_accuracy_pct": round((diff_lenient_pass / diff_total) * 100, 2) if diff_total else 0.0,
         }
 
     return {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "total_questions": total_count,
-        "passed": passed_count,
-        "overall_accuracy_pct": overall_acc,
+        "passed": passed_strict_count,
+        "passed_strict": passed_strict_count,
+        "passed_lenient": passed_lenient_count,
+        "overall_accuracy_pct": strict_acc,
+        "strict_accuracy_pct": strict_acc,
+        "lenient_accuracy_pct": lenient_acc,
         "avg_latency_ms": avg_latency,
         "difficulty_breakdown": diff_breakdown,
         "results": results,
@@ -282,7 +414,7 @@ def run_benchmark(
     runs: int = 1,
     question_set: str = "main",
 ) -> Dict[str, Any]:
-    """Runs the benchmark suite across all configured questions with optional multi-run variance testing."""
+    """Runs the benchmark suite across all configured questions with dual strict/lenient scoring and variance testing."""
     questions = load_questions(question_set=question_set)
     if limit:
         questions = questions[:limit]
@@ -299,7 +431,8 @@ def run_benchmark(
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
     all_passes: List[Dict[str, Any]] = []
-    question_status_map: Dict[str, List[bool]] = {q["id"]: [] for q in questions}
+    strict_status_map: Dict[str, List[bool]] = {q["id"]: [] for q in questions}
+    lenient_status_map: Dict[str, List[bool]] = {q["id"]: [] for q in questions}
 
     for run_idx in range(1, runs + 1):
         pass_res = run_single_pass(
@@ -313,17 +446,28 @@ def run_benchmark(
         )
         all_passes.append(pass_res)
         for r in pass_res["results"]:
-            question_status_map[r["id"]].append(r["passed"])
+            strict_status_map[r["id"]].append(r["passed_strict"])
+            lenient_status_map[r["id"]].append(r["passed_lenient"])
 
     latest_pass = all_passes[-1]
-    accuracies = [p["overall_accuracy_pct"] for p in all_passes]
-    mean_acc = round(float(np.mean(accuracies)), 2)
-    min_acc = round(float(min(accuracies)), 2)
-    max_acc = round(float(max(accuracies)), 2)
 
-    # Detect flipping questions (passed in some runs, failed in others)
-    flipping_questions = [
-        qid for qid, passes in question_status_map.items() if len(set(passes)) > 1
+    # Metrics across passes
+    strict_accs = [p["strict_accuracy_pct"] for p in all_passes]
+    lenient_accs = [p["lenient_accuracy_pct"] for p in all_passes]
+
+    mean_strict = round(float(np.mean(strict_accs)), 2)
+    min_strict = round(float(min(strict_accs)), 2)
+    max_strict = round(float(max(strict_accs)), 2)
+
+    mean_lenient = round(float(np.mean(lenient_accs)), 2)
+    min_lenient = round(float(min(lenient_accs)), 2)
+    max_lenient = round(float(max(lenient_accs)), 2)
+
+    flipping_strict = [
+        qid for qid, passes in strict_status_map.items() if len(set(passes)) > 1
+    ]
+    flipping_lenient = [
+        qid for qid, passes in lenient_status_map.items() if len(set(passes)) > 1
     ]
 
     summary_payload = {
@@ -333,18 +477,28 @@ def run_benchmark(
         "set": question_set,
         "runs": runs,
         "total_questions": latest_pass["total_questions"],
-        "passed": latest_pass["passed"],
-        "overall_accuracy_pct": latest_pass["overall_accuracy_pct"],
-        "mean_accuracy_pct": mean_acc,
-        "min_accuracy_pct": min_acc,
-        "max_accuracy_pct": max_acc,
-        "flipping_questions": flipping_questions,
+        "passed": latest_pass["passed_strict"],
+        "passed_strict": latest_pass["passed_strict"],
+        "passed_lenient": latest_pass["passed_lenient"],
+        "overall_accuracy_pct": latest_pass["strict_accuracy_pct"],
+        "strict_accuracy_pct": latest_pass["strict_accuracy_pct"],
+        "lenient_accuracy_pct": latest_pass["lenient_accuracy_pct"],
+        "mean_accuracy_pct": mean_strict,
+        "mean_strict_accuracy_pct": mean_strict,
+        "mean_lenient_accuracy_pct": mean_lenient,
+        "min_strict_accuracy_pct": min_strict,
+        "max_strict_accuracy_pct": max_strict,
+        "min_lenient_accuracy_pct": min_lenient,
+        "max_lenient_accuracy_pct": max_lenient,
+        "flipping_questions": flipping_strict,
+        "flipping_strict": flipping_strict,
+        "flipping_lenient": flipping_lenient,
         "avg_latency_ms": latest_pass["avg_latency_ms"],
         "difficulty_breakdown": latest_pass["difficulty_breakdown"],
         "results": latest_pass["results"],
     }
 
-    # Handling output destinations based on parameters
+    # Output destination routing
     if question_set == "heldout":
         json_path = RESULTS_DIR / "heldout.json"
         with open(json_path, "w", encoding="utf-8") as f:
@@ -364,27 +518,34 @@ def run_benchmark(
                 "set": question_set,
                 "runs": runs,
                 "total_questions": latest_pass["total_questions"],
-                "mean_accuracy_pct": mean_acc,
-                "min_accuracy_pct": min_acc,
-                "max_accuracy_pct": max_acc,
-                "flipping_questions": flipping_questions,
-                "per_run_accuracies": accuracies,
+                "mean_strict_accuracy_pct": mean_strict,
+                "min_strict_accuracy_pct": min_strict,
+                "max_strict_accuracy_pct": max_strict,
+                "mean_lenient_accuracy_pct": mean_lenient,
+                "min_lenient_accuracy_pct": min_lenient,
+                "max_lenient_accuracy_pct": max_lenient,
+                "flipping_strict": flipping_strict,
+                "flipping_lenient": flipping_lenient,
                 "per_run_summaries": [
                     {
                         "run_index": i + 1,
-                        "passed": p["passed"],
+                        "passed_strict": p["passed_strict"],
+                        "strict_accuracy_pct": p["strict_accuracy_pct"],
+                        "passed_lenient": p["passed_lenient"],
+                        "lenient_accuracy_pct": p["lenient_accuracy_pct"],
                         "total": p["total_questions"],
-                        "accuracy_pct": p["overall_accuracy_pct"],
                         "avg_latency_ms": p["avg_latency_ms"],
                     }
                     for i, p in enumerate(all_passes)
                 ],
-                "question_flip_details": {
+                "question_stability": {
                     qid: {
-                        "passes": passes,
-                        "flips": len(set(passes)) > 1,
+                        "strict_passes": strict_status_map[qid],
+                        "lenient_passes": lenient_status_map[qid],
+                        "strict_flips": len(set(strict_status_map[qid])) > 1,
+                        "lenient_flips": len(set(lenient_status_map[qid])) > 1,
                     }
-                    for qid, passes in question_status_map.items()
+                    for qid in strict_status_map
                 },
             }
             multi_json_path = RESULTS_DIR / "multi_run.json"
@@ -402,25 +563,26 @@ def run_benchmark(
     print("\n" + "=" * 75)
     print(" BENCHMARK COMPLETE SUMMARY")
     print("=" * 75)
-    print(f" Mode               : {'MOCK (CI Smoke Test)' if mock else 'LIVE'}")
-    print(f" Set                : {question_set.upper()}")
-    print(f" Runs Executed      : {runs}")
+    print(f" Mode                 : {'MOCK (CI Smoke Test)' if mock else 'LIVE'}")
+    print(f" Set                  : {question_set.upper()}")
+    print(f" Runs Executed        : {runs}")
     if runs > 1:
-        print(f" Mean Accuracy      : {mean_acc}% (min: {min_acc}%, max: {max_acc}%)")
-        print(f" Flipping Questions : {len(flipping_questions)} ({', '.join(flipping_questions) if flipping_questions else 'None'})")
-    print(f" Latest Run Passed  : {latest_pass['passed']}/{latest_pass['total_questions']} ({latest_pass['overall_accuracy_pct']}%)")
-    print(f" Average Latency    : {latest_pass['avg_latency_ms']} ms")
-    print(f" Easy Accuracy      : {latest_pass['difficulty_breakdown']['easy']['accuracy_pct']}% ({latest_pass['difficulty_breakdown']['easy']['passed']}/{latest_pass['difficulty_breakdown']['easy']['total']})")
-    print(f" Medium Accuracy    : {latest_pass['difficulty_breakdown']['medium']['accuracy_pct']}% ({latest_pass['difficulty_breakdown']['medium']['passed']}/{latest_pass['difficulty_breakdown']['medium']['total']})")
-    print(f" Hard Accuracy      : {latest_pass['difficulty_breakdown']['hard']['accuracy_pct']}% ({latest_pass['difficulty_breakdown']['hard']['passed']}/{latest_pass['difficulty_breakdown']['hard']['total']})")
-    print(f" Artifacts Saved To : {RESULTS_DIR}")
+        print(f" Strict Mean Accuracy : {mean_strict}% (min: {min_strict}%, max: {max_strict}%)")
+        print(f" Lenient Mean Accuracy: {mean_lenient}% (min: {min_lenient}%, max: {max_lenient}%)")
+        print(f" Strict Flipping Qs   : {len(flipping_strict)} ({', '.join(flipping_strict) if flipping_strict else 'None'})")
+        print(f" Lenient Flipping Qs  : {len(flipping_lenient)} ({', '.join(flipping_lenient) if flipping_lenient else 'None'})")
+    else:
+        print(f" Strict Accuracy      : {latest_pass['strict_accuracy_pct']}% ({latest_pass['passed_strict']}/{latest_pass['total_questions']})")
+        print(f" Lenient Accuracy     : {latest_pass['lenient_accuracy_pct']}% ({latest_pass['passed_lenient']}/{latest_pass['total_questions']})")
+    print(f" Average Latency      : {latest_pass['avg_latency_ms']} ms")
+    print(f" Artifacts Saved To   : {RESULTS_DIR}")
     print("=" * 75)
 
     return summary_payload
 
 
 def generate_markdown_report(data: Dict[str, Any], output_path: Path):
-    """Generates an honest, clear Markdown report of benchmark results."""
+    """Generates an honest, clear Markdown report of benchmark results with dual strict/lenient scores."""
     lines = [
         "# 📊 Text-to-SQL Accuracy Benchmark Report",
         "",
@@ -429,35 +591,40 @@ def generate_markdown_report(data: Dict[str, Any], output_path: Path):
         f"- **Evaluation Set**: `{data.get('set', 'main')}`",
         f"- **LLM Evaluated**: `{data['llm_provider']}`",
         f"- **Total Test Questions**: `{data['total_questions']}`",
-        f"- **Overall Accuracy**: **`{data['overall_accuracy_pct']}%`** ({data['passed']}/{data['total_questions']})",
+        f"- **Strict Accuracy**: **`{data['strict_accuracy_pct']}%`** ({data['passed_strict']}/{data['total_questions']})",
+        f"- **Lenient Accuracy**: **`{data['lenient_accuracy_pct']}%`** ({data['passed_lenient']}/{data['total_questions']})",
         f"- **Average Query Latency**: `{data['avg_latency_ms']} ms`",
+        "",
+        "> [!NOTE]",
+        "> **Strict scoring** requires exact matrix shape match (1:1 column projection).",
+        "> **Lenient scoring** requires matching row count and all expected column values, but permits harmless extra helper columns.",
         "",
         "## 🎯 Accuracy by Difficulty",
         "",
-        "| Difficulty | Total Questions | Passed | Accuracy % |",
-        "| :--- | :---: | :---: | :---: |",
+        "| Difficulty | Total Questions | Strict Passed | Strict % | Lenient Passed | Lenient % |",
+        "| :--- | :---: | :---: | :---: | :---: | :---: |",
     ]
 
     for diff, stats in data["difficulty_breakdown"].items():
         lines.append(
-            f"| **{diff.capitalize()}** | {stats['total']} | {stats['passed']} | {stats['accuracy_pct']}% |"
+            f"| **{diff.capitalize()}** | {stats['total']} | {stats['passed_strict']} | {stats['strict_accuracy_pct']}% | {stats['passed_lenient']} | {stats['lenient_accuracy_pct']}% |"
         )
 
     lines.extend([
         "",
-        "## 🔬 Failure Analysis",
+        "## 🔬 Failure Analysis (Strict Scoring)",
         "",
     ])
 
-    failures = [r for r in data["results"] if not r["passed"]]
+    failures = [r for r in data["results"] if not r["passed_strict"]]
     if not failures:
-        lines.append("All benchmark questions passed semantic validation against ground truth.")
+        lines.append("All benchmark questions passed strict semantic validation against ground truth.")
     else:
-        lines.append("| Question ID | Difficulty | Question | Reason |")
-        lines.append("| :--- | :---: | :--- | :--- |")
+        lines.append("| Question ID | Difficulty | Question | Reason (Strict) | Passed Lenient? |")
+        lines.append("| :--- | :---: | :--- | :--- | :---: |")
         for f in failures:
             lines.append(
-                f"| `{f['id']}` | {f['difficulty']} | {f['question']} | {f['reason']} |"
+                f"| `{f['id']}` | {f['difficulty']} | {f['question']} | {f['reason_strict']} | {'✅ Yes' if f['passed_lenient'] else '❌ No'} |"
             )
 
         lines.extend([
@@ -466,9 +633,15 @@ def generate_markdown_report(data: Dict[str, Any], output_path: Path):
             "",
         ])
         for f in failures:
+            len_status = (
+                "PASSED (Contains all expected columns; extra columns present)"
+                if f["passed_lenient"]
+                else f"FAILED ({f['reason_lenient']})"
+            )
             lines.extend([
                 f"#### `{f['id']}` - {f['question']}",
-                f"- **Failure Reason**: {f['reason']}",
+                f"- **Strict Failure Reason**: {f['reason_strict']}",
+                f"- **Lenient Outcome**: {len_status}",
                 "```sql",
                 "-- Generated SQL",
                 f"{f['generated_sql']}",
@@ -488,7 +661,7 @@ def generate_multi_run_markdown_report(
     multi_data: Dict[str, Any],
     output_path: Path,
 ):
-    """Generates an honest, clear Markdown report including multi-run variance and consistency metrics."""
+    """Generates an honest, clear Markdown report including multi-run variance and dual scoring metrics."""
     lines = [
         "# 📊 Text-to-SQL Accuracy & Variance Benchmark Report",
         "",
@@ -497,19 +670,24 @@ def generate_multi_run_markdown_report(
         f"- **Evaluation Set**: `{data.get('set', 'main')}`",
         f"- **LLM Evaluated**: `{data['llm_provider']}` (Temperature: `0.0`)",
         f"- **Runs Evaluated**: `{multi_data['runs']}`",
-        f"- **Mean Accuracy**: **`{multi_data['mean_accuracy_pct']}%`** (Min: `{multi_data['min_accuracy_pct']}%`, Max: `{multi_data['max_accuracy_pct']}%`)",
-        f"- **Flipping Questions**: `{len(multi_data['flipping_questions'])}`",
+        f"- **Strict Mean Accuracy**: **`{multi_data['mean_strict_accuracy_pct']}%`** (Min: `{multi_data['min_strict_accuracy_pct']}%`, Max: `{multi_data['max_strict_accuracy_pct']}%`)",
+        f"- **Lenient Mean Accuracy**: **`{multi_data['mean_lenient_accuracy_pct']}%`** (Min: `{multi_data['min_lenient_accuracy_pct']}%`, Max: `{multi_data['max_lenient_accuracy_pct']}%`)",
+        f"- **Strict Flipping Questions**: `{len(multi_data['flipping_strict'])}`",
         f"- **Average Query Latency**: `{data['avg_latency_ms']} ms`",
+        "",
+        "> [!NOTE]",
+        "> **Strict scoring** requires exact matrix shape match (1:1 column projection).",
+        "> **Lenient scoring** requires matching row count and all expected column values, but permits harmless extra helper columns.",
         "",
         "## 📈 Multi-Run Variance Breakdown",
         "",
-        "| Run Index | Passed Questions | Total Questions | Accuracy % | Avg Latency (ms) |",
-        "| :---: | :---: | :---: | :---: | :---: |",
+        "| Run Index | Strict Passed | Strict % | Lenient Passed | Lenient % | Total Qs | Avg Latency (ms) |",
+        "| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
     ]
 
     for r in multi_data["per_run_summaries"]:
         lines.append(
-            f"| Run {r['run_index']} | {r['passed']} | {r['total']} | **{r['accuracy_pct']}%** | {r['avg_latency_ms']} |"
+            f"| Run {r['run_index']} | {r['passed_strict']} | **{r['strict_accuracy_pct']}%** | {r['passed_lenient']} | **{r['lenient_accuracy_pct']}%** | {r['total']} | {r['avg_latency_ms']} |"
         )
 
     lines.extend([
@@ -518,50 +696,50 @@ def generate_multi_run_markdown_report(
         "",
     ])
 
-    flips = multi_data["flipping_questions"]
+    flips = multi_data["flipping_strict"]
     if not flips:
-        lines.append("Zero flipping questions observed across runs. Query generation at temperature 0.0 was consistent.")
+        lines.append("Zero flipping questions observed across runs under strict scoring.")
     else:
-        lines.append(f"The following {len(flips)} question(s) flipped between passing and failing across evaluation runs:")
+        lines.append(f"The following {len(flips)} question(s) flipped under strict scoring across evaluation runs:")
         lines.append("")
-        lines.append("| Question ID | Run 1 | Run 2 | Run 3 | Stability Note |")
+        lines.append("| Question ID | Run 1 (Strict) | Run 2 (Strict) | Run 3 (Strict) | Lenient Outcome |")
         lines.append("| :--- | :---: | :---: | :---: | :--- |")
         for qid in flips:
-            passes = multi_data["question_flip_details"][qid]["passes"]
+            passes = multi_data["question_stability"][qid]["strict_passes"]
             statuses = ["✅ PASS" if p else "❌ FAIL" for p in passes]
             run_cols = " | ".join(statuses)
-            pass_count = sum(passes)
-            total = len(passes)
-            lines.append(f"| `{qid}` | {run_cols} | Passed {pass_count}/{total} runs |")
+            lenient_p = multi_data["question_stability"][qid]["lenient_passes"]
+            len_summary = "100% Pass" if all(lenient_p) else f"{sum(lenient_p)}/{len(lenient_p)} Pass"
+            lines.append(f"| `{qid}` | {run_cols} | {len_summary} |")
 
     lines.extend([
         "",
         "## 🎯 Accuracy by Difficulty (Latest Run)",
         "",
-        "| Difficulty | Total Questions | Passed | Accuracy % |",
-        "| :--- | :---: | :---: | :---: |",
+        "| Difficulty | Total Questions | Strict Passed | Strict % | Lenient Passed | Lenient % |",
+        "| :--- | :---: | :---: | :---: | :---: | :---: |",
     ])
 
     for diff, stats in data["difficulty_breakdown"].items():
         lines.append(
-            f"| **{diff.capitalize()}** | {stats['total']} | {stats['passed']} | {stats['accuracy_pct']}% |"
+            f"| **{diff.capitalize()}** | {stats['total']} | {stats['passed_strict']} | {stats['strict_accuracy_pct']}% | {stats['passed_lenient']} | {stats['lenient_accuracy_pct']}% |"
         )
 
     lines.extend([
         "",
-        "## 🔬 Failure Analysis (Latest Run)",
+        "## 🔬 Failure Analysis (Latest Run - Strict Scoring)",
         "",
     ])
 
-    failures = [r for r in data["results"] if not r["passed"]]
+    failures = [r for r in data["results"] if not r["passed_strict"]]
     if not failures:
-        lines.append("All benchmark questions passed semantic validation against ground truth.")
+        lines.append("All benchmark questions passed strict semantic validation against ground truth.")
     else:
-        lines.append("| Question ID | Difficulty | Question | Reason |")
-        lines.append("| :--- | :---: | :--- | :--- |")
+        lines.append("| Question ID | Difficulty | Question | Reason (Strict) | Passed Lenient? |")
+        lines.append("| :--- | :---: | :--- | :--- | :---: |")
         for f in failures:
             lines.append(
-                f"| `{f['id']}` | {f['difficulty']} | {f['question']} | {f['reason']} |"
+                f"| `{f['id']}` | {f['difficulty']} | {f['question']} | {f['reason_strict']} | {'✅ Yes' if f['passed_lenient'] else '❌ No'} |"
             )
 
         lines.extend([
@@ -570,9 +748,15 @@ def generate_multi_run_markdown_report(
             "",
         ])
         for f in failures:
+            len_status = (
+                "PASSED (Contains all expected columns; extra columns present)"
+                if f["passed_lenient"]
+                else f"FAILED ({f['reason_lenient']})"
+            )
             lines.extend([
                 f"#### `{f['id']}` - {f['question']}",
-                f"- **Failure Reason**: {f['reason']}",
+                f"- **Strict Failure Reason**: {f['reason_strict']}",
+                f"- **Lenient Outcome**: {len_status}",
                 "```sql",
                 "-- Generated SQL",
                 f"{f['generated_sql']}",

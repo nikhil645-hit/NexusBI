@@ -145,3 +145,35 @@ Refactor all connection code in `app/db_helper.py`, `dbt/olist_dbt/profiles.yml`
 ### Consequences
 - **Positive**: The application and dbt project can seamlessly connect to any PostgreSQL 14+ host (AWS RDS, Neon, Supabase, local Docker) simply by updating `.env`.
 - **Positive**: Zero breaking changes for existing developers using `WAREHOUSE_*` variables.
+
+---
+
+## ADR-007: Dual Evaluation Policy (Strict vs. Lenient) for Text-to-SQL Accuracy Benchmarking
+
+- **Status**: Accepted
+- **Date**: 2026-11-09
+
+### Context
+When evaluating LLM-generated SQL queries against hand-crafted ground truth queries, semantic comparisons can fail for two distinct reasons:
+1. Genuine semantic or logic errors (e.g. wrong aggregation formulas, invalid filters, or syntax errors).
+2. Harmless projection differences where the LLM includes useful intermediate or component columns (e.g., returning `category_name, total_revenue, units_sold, revenue_per_unit` when the question asks for highest revenue per unit, whereas the ground truth projects only `category_name, revenue_per_unit`).
+
+A rigid shape-matching check flags harmless extra columns as total failures (`Shape mismatch: generated (5, 4) vs expected (5, 2)`). Conversely, ignoring column checks entirely would allow queries with missing metrics to pass.
+
+### Decision
+Adopt a dual-reporting comparator policy in `benchmarks/run_benchmark.py`:
+1. **Strict Policy**:
+   - Requires identical matrix dimensions (`df_gen.shape == df_exp.shape`).
+   - Every column in the expected query must align 1:1 with the generated query.
+   - Floats compared within relative tolerance `rtol <= 0.05`.
+   - Date formats normalized to `YYYY-MM`.
+2. **Lenient Policy**:
+   - Requires exact row count match (`len(df_gen) == len(df_exp)`).
+   - Allows additional generated helper columns (`df_gen.shape[1] >= df_exp.shape[1]`).
+   - Every expected column's values must appear as a unique column in the generated result (matched by value equality across all rows, independent of column aliases).
+   - Ordering constraints (e.g. `ORDER BY ... LIMIT`) and float tolerances remain strictly enforced.
+
+### Consequences
+- **Positive**: Separates LLM hallucinations and SQL syntax errors from harmless auxiliary column projections.
+- **Positive**: Provides honest, multi-dimensional visibility for technical interviewers and academic reviewers.
+- **Neutral**: Both scores are printed side-by-side in all automated reports and terminal summaries.

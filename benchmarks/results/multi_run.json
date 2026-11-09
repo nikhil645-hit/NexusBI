@@ -1,286 +1,472 @@
 {
-  "timestamp": "2026-11-09T08:31:11.337213+00:00",
+  "timestamp": "2026-11-09T09:24:03.418323+00:00",
   "mode": "live",
   "llm_provider": "GroqCloudAdapter",
   "set": "main",
   "runs": 3,
   "total_questions": 30,
-  "mean_accuracy_pct": 81.11,
-  "min_accuracy_pct": 80.0,
-  "max_accuracy_pct": 83.33,
-  "flipping_questions": [
+  "mean_strict_accuracy_pct": 83.33,
+  "min_strict_accuracy_pct": 83.33,
+  "max_strict_accuracy_pct": 83.33,
+  "mean_lenient_accuracy_pct": 87.78,
+  "min_lenient_accuracy_pct": 86.67,
+  "max_lenient_accuracy_pct": 90.0,
+  "flipping_strict": [
     "q14",
-    "q22",
-    "q30"
+    "q23"
   ],
-  "per_run_accuracies": [
-    83.33,
-    80.0,
-    80.0
+  "flipping_lenient": [
+    "q23"
   ],
   "per_run_summaries": [
     {
       "run_index": 1,
-      "passed": 25,
+      "passed_strict": 25,
+      "strict_accuracy_pct": 83.33,
+      "passed_lenient": 26,
+      "lenient_accuracy_pct": 86.67,
       "total": 30,
-      "accuracy_pct": 83.33,
-      "avg_latency_ms": 1966.64
+      "avg_latency_ms": 2030.67
     },
     {
       "run_index": 2,
-      "passed": 24,
+      "passed_strict": 25,
+      "strict_accuracy_pct": 83.33,
+      "passed_lenient": 26,
+      "lenient_accuracy_pct": 86.67,
       "total": 30,
-      "accuracy_pct": 80.0,
-      "avg_latency_ms": 1998.44
+      "avg_latency_ms": 2170.87
     },
     {
       "run_index": 3,
-      "passed": 24,
+      "passed_strict": 25,
+      "strict_accuracy_pct": 83.33,
+      "passed_lenient": 27,
+      "lenient_accuracy_pct": 90.0,
       "total": 30,
-      "accuracy_pct": 80.0,
-      "avg_latency_ms": 2276.01
+      "avg_latency_ms": 1983.39
     }
   ],
-  "question_flip_details": {
+  "question_stability": {
     "q01": {
-      "passes": [
+      "strict_passes": [
         true,
         true,
         true
       ],
-      "flips": false
+      "lenient_passes": [
+        true,
+        true,
+        true
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     },
     "q02": {
-      "passes": [
+      "strict_passes": [
         true,
         true,
         true
       ],
-      "flips": false
+      "lenient_passes": [
+        true,
+        true,
+        true
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     },
     "q03": {
-      "passes": [
+      "strict_passes": [
         true,
         true,
         true
       ],
-      "flips": false
+      "lenient_passes": [
+        true,
+        true,
+        true
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     },
     "q04": {
-      "passes": [
+      "strict_passes": [
         true,
         true,
         true
       ],
-      "flips": false
+      "lenient_passes": [
+        true,
+        true,
+        true
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     },
     "q05": {
-      "passes": [
+      "strict_passes": [
         true,
         true,
         true
       ],
-      "flips": false
+      "lenient_passes": [
+        true,
+        true,
+        true
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     },
     "q06": {
-      "passes": [
+      "strict_passes": [
         true,
         true,
         true
       ],
-      "flips": false
+      "lenient_passes": [
+        true,
+        true,
+        true
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     },
     "q07": {
-      "passes": [
-        false,
-        false,
-        false
+      "strict_passes": [
+        true,
+        true,
+        true
       ],
-      "flips": false
+      "lenient_passes": [
+        true,
+        true,
+        true
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     },
     "q08": {
-      "passes": [
+      "strict_passes": [
         true,
         true,
         true
       ],
-      "flips": false
+      "lenient_passes": [
+        true,
+        true,
+        true
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     },
     "q09": {
-      "passes": [
+      "strict_passes": [
         true,
         true,
         true
       ],
-      "flips": false
+      "lenient_passes": [
+        true,
+        true,
+        true
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     },
     "q10": {
-      "passes": [
+      "strict_passes": [
         true,
         true,
         true
       ],
-      "flips": false
+      "lenient_passes": [
+        true,
+        true,
+        true
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     },
     "q11": {
-      "passes": [
+      "strict_passes": [
         true,
         true,
         true
       ],
-      "flips": false
+      "lenient_passes": [
+        true,
+        true,
+        true
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     },
     "q12": {
-      "passes": [
+      "strict_passes": [
         true,
         true,
         true
       ],
-      "flips": false
+      "lenient_passes": [
+        true,
+        true,
+        true
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     },
     "q13": {
-      "passes": [
+      "strict_passes": [
         true,
         true,
         true
       ],
-      "flips": false
+      "lenient_passes": [
+        true,
+        true,
+        true
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     },
     "q14": {
-      "passes": [
-        false,
+      "strict_passes": [
+        true,
         true,
         false
       ],
-      "flips": true
+      "lenient_passes": [
+        true,
+        true,
+        true
+      ],
+      "strict_flips": true,
+      "lenient_flips": false
     },
     "q15": {
-      "passes": [
+      "strict_passes": [
         true,
         true,
         true
       ],
-      "flips": false
+      "lenient_passes": [
+        true,
+        true,
+        true
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     },
     "q16": {
-      "passes": [
+      "strict_passes": [
         true,
         true,
         true
       ],
-      "flips": false
+      "lenient_passes": [
+        true,
+        true,
+        true
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     },
     "q17": {
-      "passes": [
+      "strict_passes": [
         true,
         true,
         true
       ],
-      "flips": false
+      "lenient_passes": [
+        true,
+        true,
+        true
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     },
     "q18": {
-      "passes": [
+      "strict_passes": [
         true,
         true,
         true
       ],
-      "flips": false
+      "lenient_passes": [
+        true,
+        true,
+        true
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     },
     "q19": {
-      "passes": [
+      "strict_passes": [
         true,
         true,
         true
       ],
-      "flips": false
+      "lenient_passes": [
+        true,
+        true,
+        true
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     },
     "q20": {
-      "passes": [
+      "strict_passes": [
         true,
         true,
         true
       ],
-      "flips": false
+      "lenient_passes": [
+        true,
+        true,
+        true
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     },
     "q21": {
-      "passes": [
+      "strict_passes": [
         true,
         true,
         true
       ],
-      "flips": false
+      "lenient_passes": [
+        true,
+        true,
+        true
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     },
     "q22": {
-      "passes": [
-        true,
+      "strict_passes": [
+        false,
         false,
         false
       ],
-      "flips": true
+      "lenient_passes": [
+        true,
+        true,
+        true
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     },
     "q23": {
-      "passes": [
+      "strict_passes": [
         false,
         false,
-        false
+        true
       ],
-      "flips": false
+      "lenient_passes": [
+        false,
+        false,
+        true
+      ],
+      "strict_flips": true,
+      "lenient_flips": true
     },
     "q24": {
-      "passes": [
+      "strict_passes": [
         true,
         true,
         true
       ],
-      "flips": false
+      "lenient_passes": [
+        true,
+        true,
+        true
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     },
     "q25": {
-      "passes": [
+      "strict_passes": [
         true,
         true,
         true
       ],
-      "flips": false
+      "lenient_passes": [
+        true,
+        true,
+        true
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     },
     "q26": {
-      "passes": [
+      "strict_passes": [
         true,
         true,
         true
       ],
-      "flips": false
+      "lenient_passes": [
+        true,
+        true,
+        true
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     },
     "q27": {
-      "passes": [
+      "strict_passes": [
         true,
         true,
         true
       ],
-      "flips": false
+      "lenient_passes": [
+        true,
+        true,
+        true
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     },
     "q28": {
-      "passes": [
+      "strict_passes": [
         false,
         false,
         false
       ],
-      "flips": false
+      "lenient_passes": [
+        false,
+        false,
+        false
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     },
     "q29": {
-      "passes": [
+      "strict_passes": [
         false,
         false,
         false
       ],
-      "flips": false
+      "lenient_passes": [
+        false,
+        false,
+        false
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     },
     "q30": {
-      "passes": [
-        true,
+      "strict_passes": [
         false,
-        true
+        false,
+        false
       ],
-      "flips": true
+      "lenient_passes": [
+        false,
+        false,
+        false
+      ],
+      "strict_flips": false,
+      "lenient_flips": false
     }
   }
 }
