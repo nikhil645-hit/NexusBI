@@ -2,7 +2,7 @@
 
 This document outlines the step-by-step implementation plan to polish **NexusBI** into a clean, honest, and resume-ready portfolio project built by a 3rd-year computer engineering student.
 
-The upgrade focuses on adding tangible engineering proof (AST guardrail test suite, Text-to-SQL benchmark harness, semantic layer, observability, CI/CD, and concise documentation) while strictly avoiding buzzwords like "enterprise-grade", "autonomous", or "sub-second".
+The upgrade focuses on adding tangible engineering proof (AST guardrail test suite, Text-to-SQL benchmark harness, semantic layer, observability, CI/CD, and concise documentation) while strictly avoiding buzzwords.
 
 ---
 
@@ -15,7 +15,7 @@ The upgrade focuses on adding tangible engineering proof (AST guardrail test sui
   - `Makefile`: Commands for `test`, `lint`, `dbt-test`, `benchmark`, `app`.
   - `.env.example`: Complete environment variable template with all DB and LLM variables.
   - `.gitignore`: Confirm coverage of `.env`, `secrets.toml`, `*.pem`, `target/`, `logs/`.
-  - `README.md`, `app/streamlit_app.py`: Remove buzzwords ("enterprise-grade", "autonomous", "sub-second").
+  - `README.md`, `app/streamlit_app.py`: Remove inflated buzzwords.
 
 ### Phase 2: Guardrail Hardening & Unit Tests
 - **Create/Modify**:
