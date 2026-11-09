@@ -13,13 +13,39 @@
 import os
 import re
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Optional
+import yaml
+
+_SEMANTIC_LAYER_PATH = Path(__file__).resolve().parent / "semantic_layer.yaml"
+
+
+def get_semantic_context() -> str:
+    """Loads semantic layer metrics and canonical few-shot examples for LLM context."""
+    if not _SEMANTIC_LAYER_PATH.exists():
+        return ""
+    try:
+        with open(_SEMANTIC_LAYER_PATH, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        lines = ["\nBUSINESS METRIC DEFINITIONS & FORMULAS:"]
+        for name, info in data.get("metrics", {}).items():
+            lines.append(f"- {name.replace('_', ' ').title()}: {info['formula']} (Table: {info['table']}) - {info['description']}")
+
+        lines.append("\nCANONICAL FEW-SHOT EXAMPLES:")
+        for ex in data.get("canonical_examples", []):
+            lines.append(f"-- Question: {ex['question']}")
+            lines.append(f"{ex['sql'].strip()}\n")
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
 
 SYSTEM_PROMPT_TEMPLATE = """You are an expert Data Engineering and Business Intelligence SQL Assistant.
-Your task is to convert business questions into PostgreSQL / Amazon Redshift compliant SQL queries.
+Your task is to convert business questions into PostgreSQL compliant SQL queries.
 
 You have access ONLY to the following tables in the 'marts' schema:
 {schema_info}
+{semantic_context}
 
 CRITICAL RULES:
 1. Output ONLY executable SQL. Do NOT include markdown explanations, thought processes, or greetings.
@@ -31,6 +57,14 @@ CRITICAL RULES:
 7. Wrap your SQL output cleanly in ```sql ... ``` code blocks.
 8. Output exactly ONE single SELECT statement. NEVER output multiple semicolon-separated queries. If multiple metrics are asked, combine them into a single SELECT statement.
 """
+
+
+def build_system_prompt(schema_info: str) -> str:
+    """Builds the comprehensive system prompt including live schema and semantic layer definitions."""
+    return SYSTEM_PROMPT_TEMPLATE.format(
+        schema_info=schema_info,
+        semantic_context=get_semantic_context(),
+    )
 
 INSIGHTS_SYSTEM_PROMPT = """You are an elite Senior Data Analyst and Business Strategy Consultant for an e-commerce platform.
 The user asked an analytical question. A verified SQL query was executed on the PostgreSQL data warehouse, returning the data provided below.
@@ -140,7 +174,7 @@ class GeminiAdapter(BaseLLMAdapter):
         schema_info: str,
         error_context: Optional[str] = None,
     ) -> str:
-        system_instruction = SYSTEM_PROMPT_TEMPLATE.format(schema_info=schema_info)
+        system_instruction = build_system_prompt(schema_info)
         
         prompt = f"User Question: {question}\n\nGenerate the Redshift SQL query:"
         if error_context:
@@ -217,7 +251,7 @@ class GroqCloudAdapter(BaseLLMAdapter):
     ) -> str:
         import requests
 
-        system_instruction = SYSTEM_PROMPT_TEMPLATE.format(schema_info=schema_info)
+        system_instruction = build_system_prompt(schema_info)
         user_prompt = f"User Question: {question}\n\nGenerate ONLY executable SQL inside ```sql ... ``` code block:"
         if error_context:
             user_prompt += f"\n\nPrevious attempt failed with error:\n{error_context}\nPlease correct the SQL."
@@ -382,7 +416,7 @@ class OllamaAdapter(BaseLLMAdapter):
     ) -> str:
         import requests
 
-        system_instruction = SYSTEM_PROMPT_TEMPLATE.format(schema_info=schema_info)
+        system_instruction = build_system_prompt(schema_info)
         prompt = (
             f"{system_instruction}\n\n"
             f"User Question: {question}\n\n"
