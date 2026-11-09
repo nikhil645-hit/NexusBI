@@ -415,74 +415,95 @@ if active_dashboard:
 # ------------------------------------------------------------------------------
 def render_intelligent_chart(df: pd.DataFrame):
     """Detects metrics, date or categorical series and plots rich interactive Streamlit charts and KPI cards."""
-    if df.empty:
+    if df.empty or len(df.columns) < 2:
         return
 
-    # 1. Summary KPI Metric Cards
-    numeric_cols = [c for c in df.select_dtypes(include=["number"]).columns]
-    metrics_to_show = []
+    try:
+        # Deduplicate columns if SQL projection returned identical aliases
+        if df.columns.duplicated().any():
+            df = df.loc[:, ~df.columns.duplicated()].copy()
+        else:
+            df = df.copy()
 
-    for c in numeric_cols:
-        c_lower = c.lower()
-        if "revenue" in c_lower or "spend" in c_lower or "price" in c_lower:
-            total_val = df[c].sum()
-            metrics_to_show.append((c.replace("_", " ").title(), f"${total_val:,.2f}"))
-        elif "orders" in c_lower or "units" in c_lower or "buyers" in c_lower or "count" in c_lower:
-            total_val = df[c].sum()
-            metrics_to_show.append((c.replace("_", " ").title(), f"{total_val:,.0f}"))
-        elif "avg" in c_lower or "rate" in c_lower or "pct" in c_lower:
-            mean_val = df[c].mean()
-            if "pct" in c_lower or "rate" in c_lower:
-                metrics_to_show.append((c.replace("_", " ").title(), f"{mean_val:.2f}%"))
+        # 1. Summary KPI Metric Cards
+        numeric_cols_all = [c for c in df.select_dtypes(include=["number"]).columns]
+        metrics_to_show = []
+
+        for c in numeric_cols_all:
+            c_lower = c.lower()
+            if "revenue" in c_lower or "spend" in c_lower or "price" in c_lower:
+                total_val = df[c].sum()
+                metrics_to_show.append((c.replace("_", " ").title(), f"${total_val:,.2f}"))
+            elif "orders" in c_lower or "units" in c_lower or "buyers" in c_lower or "count" in c_lower:
+                total_val = df[c].sum()
+                metrics_to_show.append((c.replace("_", " ").title(), f"{total_val:,.0f}"))
+            elif "avg" in c_lower or "rate" in c_lower or "pct" in c_lower:
+                mean_val = df[c].mean()
+                if "pct" in c_lower or "rate" in c_lower:
+                    metrics_to_show.append((c.replace("_", " ").title(), f"{mean_val:.2f}%"))
+                else:
+                    metrics_to_show.append((c.replace("_", " ").title(), f"${mean_val:,.2f}"))
+
+        if metrics_to_show and len(metrics_to_show) >= 2:
+            cols = st.columns(min(len(metrics_to_show), 4))
+            for idx, (label, val_str) in enumerate(metrics_to_show[:4]):
+                cols[idx].metric(label=label, value=val_str)
+
+        if not numeric_cols_all:
+            return
+
+        # 2. Date-based time series -> Multi-Chart Tabs ("Various Graphs")
+        date_candidates = [c for c in df.columns if any(k in c.lower() for k in ["date", "month", "day", "time", "year"])]
+        primary_date_col = date_candidates[0] if date_candidates else None
+
+        # Exclude the primary date column from numeric metric columns to plot
+        numeric_cols = [c for c in numeric_cols_all if c != primary_date_col]
+
+        if primary_date_col and numeric_cols:
+            st.markdown("##### 📈 Visual Trend Analysis")
+
+            if len(numeric_cols) == 1:
+                chart_data = df[[primary_date_col, numeric_cols[0]]].copy().set_index(primary_date_col)
+                st.line_chart(chart_data)
             else:
-                metrics_to_show.append((c.replace("_", " ").title(), f"${mean_val:,.2f}"))
+                tab_titles = [f"📊 {col.replace('_', ' ').title()}" for col in numeric_cols[:4]]
+                tabs = st.tabs(tab_titles)
+                for i, col in enumerate(numeric_cols[:4]):
+                    with tabs[i]:
+                        sub_chart = df[[primary_date_col, col]].copy().set_index(primary_date_col)
+                        if any(term in col.lower() for term in ["order", "count", "units", "items"]):
+                            st.bar_chart(sub_chart)
+                        else:
+                            st.line_chart(sub_chart)
+            return
 
-    if metrics_to_show and len(metrics_to_show) >= 2:
-        cols = st.columns(min(len(metrics_to_show), 4))
-        for idx, (label, val_str) in enumerate(metrics_to_show[:4]):
-            cols[idx].metric(label=label, value=val_str)
+        # 3. Categorical Leaderboard -> Multi-Metric Bar Chart Tabs
+        cat_candidates = [
+            c for c in df.select_dtypes(include=["object", "string"]).columns
+            if c != primary_date_col
+        ]
+        if cat_candidates and numeric_cols:
+            primary_cat = cat_candidates[0]
+            cat_numeric = [c for c in numeric_cols if c != primary_cat]
+            if not cat_numeric:
+                return
 
-    if len(df.columns) < 2 or not numeric_cols:
-        return
+            st.markdown("##### 📊 Comparative Visualizations")
 
-    # 2. Date-based time series -> Multi-Chart Tabs ("Various Graphs")
-    date_cols = [c for c in df.columns if any(k in c.lower() for k in ["date", "month", "day", "time", "year"])]
+            if len(cat_numeric) == 1:
+                bar_data = df[[primary_cat, cat_numeric[0]]].copy().head(10).set_index(primary_cat)
+                st.bar_chart(bar_data)
+            else:
+                tab_titles = [f"📊 {col.replace('_', ' ').title()}" for col in cat_numeric[:3]]
+                tabs = st.tabs(tab_titles)
+                for i, col in enumerate(cat_numeric[:3]):
+                    with tabs[i]:
+                        bar_data = df[[primary_cat, col]].copy().head(10).set_index(primary_cat)
+                        st.bar_chart(bar_data)
+            return
 
-    if date_cols and numeric_cols:
-        primary_date_col = date_cols[0]
-        st.markdown("##### 📈 Visual Trend Analysis")
-
-        if len(numeric_cols) == 1:
-            chart_data = df[[primary_date_col, numeric_cols[0]]].copy().set_index(primary_date_col)
-            st.line_chart(chart_data)
-        else:
-            tab_titles = [f"📊 {col.replace('_', ' ').title()}" for col in numeric_cols[:4]]
-            tabs = st.tabs(tab_titles)
-            for i, col in enumerate(numeric_cols[:4]):
-                with tabs[i]:
-                    sub_chart = df[[primary_date_col, col]].copy().set_index(primary_date_col)
-                    if any(term in col.lower() for term in ["order", "count", "units", "items"]):
-                        st.bar_chart(sub_chart)
-                    else:
-                        st.line_chart(sub_chart)
-        return
-
-    # 3. Categorical Leaderboard -> Multi-Metric Bar Chart Tabs
-    cat_cols = [c for c in df.select_dtypes(include=["object", "string"]).columns]
-    if cat_cols and numeric_cols:
-        primary_cat = cat_cols[0]
-        st.markdown("##### 📊 Comparative Visualizations")
-
-        if len(numeric_cols) == 1:
-            bar_data = df[[primary_cat, numeric_cols[0]]].copy().head(10).set_index(primary_cat)
-            st.bar_chart(bar_data)
-        else:
-            tab_titles = [f"📊 {col.replace('_', ' ').title()}" for col in numeric_cols[:3]]
-            tabs = st.tabs(tab_titles)
-            for i, col in enumerate(numeric_cols[:3]):
-                with tabs[i]:
-                    bar_data = df[[primary_cat, col]].copy().head(10).set_index(primary_cat)
-                    st.bar_chart(bar_data)
+    except Exception:
+        # Charting is an optional UI enhancement; never crash the page if chart data format is irregular
         return
 
 
