@@ -1,0 +1,358 @@
+{
+  "timestamp": "2026-11-09T05:34:54.228998+00:00",
+  "mode": "mock",
+  "llm_provider": "MockLLM",
+  "total_questions": 30,
+  "passed": 30,
+  "overall_accuracy_pct": 100.0,
+  "avg_latency_ms": 11.98,
+  "difficulty_breakdown": {
+    "easy": {
+      "total": 10,
+      "passed": 10,
+      "accuracy_pct": 100.0
+    },
+    "medium": {
+      "total": 12,
+      "passed": 12,
+      "accuracy_pct": 100.0
+    },
+    "hard": {
+      "total": 8,
+      "passed": 8,
+      "accuracy_pct": 100.0
+    }
+  },
+  "results": [
+    {
+      "id": "q01",
+      "difficulty": "easy",
+      "question": "What is the total revenue generated across all recorded sales?",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 11.94,
+      "reason": "PASSED",
+      "generated_sql": "SELECT SUM(total_revenue) AS total_revenue\nFROM marts.mart_daily_sales;\n",
+      "expected_sql": "SELECT SUM(total_revenue) AS total_revenue\nFROM marts.mart_daily_sales;\n"
+    },
+    {
+      "id": "q02",
+      "difficulty": "easy",
+      "question": "What is the total count of distinct orders placed across all dates?",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 11.13,
+      "reason": "PASSED",
+      "generated_sql": "SELECT SUM(total_orders) AS total_orders\nFROM marts.mart_daily_sales;\n",
+      "expected_sql": "SELECT SUM(total_orders) AS total_orders\nFROM marts.mart_daily_sales;\n"
+    },
+    {
+      "id": "q03",
+      "difficulty": "easy",
+      "question": "List the top 5 product categories by total units sold.",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 10.67,
+      "reason": "PASSED",
+      "generated_sql": "SELECT category_name, SUM(units_sold) AS total_units\nFROM marts.mart_top_products\nGROUP BY category_name\nORDER BY total_units DESC\nLIMIT 5;\n",
+      "expected_sql": "SELECT category_name, SUM(units_sold) AS total_units\nFROM marts.mart_top_products\nGROUP BY category_name\nORDER BY total_units DESC\nLIMIT 5;\n"
+    },
+    {
+      "id": "q04",
+      "difficulty": "easy",
+      "question": "Which are the top 5 product categories by total revenue?",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 16.86,
+      "reason": "PASSED",
+      "generated_sql": "SELECT category_name, SUM(total_revenue) AS total_revenue\nFROM marts.mart_top_products\nGROUP BY category_name\nORDER BY total_revenue DESC\nLIMIT 5;\n",
+      "expected_sql": "SELECT category_name, SUM(total_revenue) AS total_revenue\nFROM marts.mart_top_products\nGROUP BY category_name\nORDER BY total_revenue DESC\nLIMIT 5;\n"
+    },
+    {
+      "id": "q05",
+      "difficulty": "easy",
+      "question": "What is the average order value across all sales?",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 24.89,
+      "reason": "PASSED",
+      "generated_sql": "SELECT SUM(total_revenue) / SUM(total_orders) AS overall_aov\nFROM marts.mart_daily_sales;\n",
+      "expected_sql": "SELECT SUM(total_revenue) / SUM(total_orders) AS overall_aov\nFROM marts.mart_daily_sales;\n"
+    },
+    {
+      "id": "q06",
+      "difficulty": "easy",
+      "question": "Which 5 Brazilian states have the highest number of unique customers?",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 15.95,
+      "reason": "PASSED",
+      "generated_sql": "SELECT customer_state, COUNT(DISTINCT customer_unique_id) AS total_customers\nFROM marts.mart_customer_summary\nGROUP BY customer_state\nORDER BY total_customers DESC\nLIMIT 5;\n",
+      "expected_sql": "SELECT customer_state, COUNT(DISTINCT customer_unique_id) AS total_customers\nFROM marts.mart_customer_summary\nGROUP BY customer_state\nORDER BY total_customers DESC\nLIMIT 5;\n"
+    },
+    {
+      "id": "q07",
+      "difficulty": "easy",
+      "question": "What was the average delivery time in days across all months?",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 14.76,
+      "reason": "PASSED",
+      "generated_sql": "SELECT AVG(avg_delivery_days) AS avg_delivery_days\nFROM marts.mart_delivery_performance;\n",
+      "expected_sql": "SELECT AVG(avg_delivery_days) AS avg_delivery_days\nFROM marts.mart_delivery_performance;\n"
+    },
+    {
+      "id": "q08",
+      "difficulty": "easy",
+      "question": "How many total orders were delivered late across all recorded months?",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 11.05,
+      "reason": "PASSED",
+      "generated_sql": "SELECT SUM(late_orders_count) AS total_late_orders\nFROM marts.mart_delivery_performance;\n",
+      "expected_sql": "SELECT SUM(late_orders_count) AS total_late_orders\nFROM marts.mart_delivery_performance;\n"
+    },
+    {
+      "id": "q09",
+      "difficulty": "easy",
+      "question": "Show the daily sales and orders for August 2018.",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 10.5,
+      "reason": "PASSED",
+      "generated_sql": "SELECT sales_date, total_orders, total_revenue\nFROM marts.mart_daily_sales\nWHERE sales_date >= '2018-08-01' AND sales_date <= '2018-08-31'\nORDER BY sales_date ASC;\n",
+      "expected_sql": "SELECT sales_date, total_orders, total_revenue\nFROM marts.mart_daily_sales\nWHERE sales_date >= '2018-08-01' AND sales_date <= '2018-08-31'\nORDER BY sales_date ASC;\n"
+    },
+    {
+      "id": "q10",
+      "difficulty": "easy",
+      "question": "What is the total spend of customers from Sao Paulo state (SP)?",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 11.61,
+      "reason": "PASSED",
+      "generated_sql": "SELECT SUM(total_spend) AS total_spend_sp\nFROM marts.mart_customer_summary\nWHERE customer_state = 'SP';\n",
+      "expected_sql": "SELECT SUM(total_spend) AS total_spend_sp\nFROM marts.mart_customer_summary\nWHERE customer_state = 'SP';\n"
+    },
+    {
+      "id": "q11",
+      "difficulty": "medium",
+      "question": "What was the monthly revenue trend for the year 2018?",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 11.28,
+      "reason": "PASSED",
+      "generated_sql": "SELECT DATE_TRUNC('month', sales_date)::DATE AS sales_month,\n       SUM(total_revenue) AS monthly_revenue\nFROM marts.mart_daily_sales\nWHERE EXTRACT(YEAR FROM sales_date) = 2018\nGROUP BY 1\nORDER BY 1 ASC;\n",
+      "expected_sql": "SELECT DATE_TRUNC('month', sales_date)::DATE AS sales_month,\n       SUM(total_revenue) AS monthly_revenue\nFROM marts.mart_daily_sales\nWHERE EXTRACT(YEAR FROM sales_date) = 2018\nGROUP BY 1\nORDER BY 1 ASC;\n"
+    },
+    {
+      "id": "q12",
+      "difficulty": "medium",
+      "question": "Which month had the highest percentage of late deliveries?",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 11.4,
+      "reason": "PASSED",
+      "generated_sql": "SELECT year_month, pct_late_vs_estimated\nFROM marts.mart_delivery_performance\nORDER BY pct_late_vs_estimated DESC\nLIMIT 1;\n",
+      "expected_sql": "SELECT year_month, pct_late_vs_estimated\nFROM marts.mart_delivery_performance\nORDER BY pct_late_vs_estimated DESC\nLIMIT 1;\n"
+    },
+    {
+      "id": "q13",
+      "difficulty": "medium",
+      "question": "What are the top 10 customer cities ranked by total spend?",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 10.51,
+      "reason": "PASSED",
+      "generated_sql": "SELECT customer_city, SUM(total_spend) AS city_spend\nFROM marts.mart_customer_summary\nGROUP BY customer_city\nORDER BY city_spend DESC\nLIMIT 10;\n",
+      "expected_sql": "SELECT customer_city, SUM(total_spend) AS city_spend\nFROM marts.mart_customer_summary\nGROUP BY customer_city\nORDER BY city_spend DESC\nLIMIT 10;\n"
+    },
+    {
+      "id": "q14",
+      "difficulty": "medium",
+      "question": "Show the top 3 product categories by average unit price with at least 50 units sold.",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 11.06,
+      "reason": "PASSED",
+      "generated_sql": "SELECT category_name,\n       SUM(total_revenue) / SUM(units_sold) AS avg_unit_price,\n       SUM(units_sold) AS total_units\nFROM marts.mart_top_products\nGROUP BY category_name\nHAVING SUM(units_sold) >= 50\nORDER BY avg_unit_price DESC\nLIMIT 3;\n",
+      "expected_sql": "SELECT category_name,\n       SUM(total_revenue) / SUM(units_sold) AS avg_unit_price,\n       SUM(units_sold) AS total_units\nFROM marts.mart_top_products\nGROUP BY category_name\nHAVING SUM(units_sold) >= 50\nORDER BY avg_unit_price DESC\nLIMIT 3;\n"
+    },
+    {
+      "id": "q15",
+      "difficulty": "medium",
+      "question": "What was the total freight cost collected per month in 2018?",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 10.82,
+      "reason": "PASSED",
+      "generated_sql": "SELECT DATE_TRUNC('month', sales_date)::DATE AS sales_month,\n       SUM(total_freight) AS monthly_freight\nFROM marts.mart_daily_sales\nWHERE EXTRACT(YEAR FROM sales_date) = 2018\nGROUP BY 1\nORDER BY 1 ASC;\n",
+      "expected_sql": "SELECT DATE_TRUNC('month', sales_date)::DATE AS sales_month,\n       SUM(total_freight) AS monthly_freight\nFROM marts.mart_daily_sales\nWHERE EXTRACT(YEAR FROM sales_date) = 2018\nGROUP BY 1\nORDER BY 1 ASC;\n"
+    },
+    {
+      "id": "q16",
+      "difficulty": "medium",
+      "question": "How many repeat customers with more than 1 order are in each state for the top 5 states?",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 10.37,
+      "reason": "PASSED",
+      "generated_sql": "SELECT customer_state, COUNT(*) AS repeat_customers\nFROM marts.mart_customer_summary\nWHERE total_orders > 1\nGROUP BY customer_state\nORDER BY repeat_customers DESC\nLIMIT 5;\n",
+      "expected_sql": "SELECT customer_state, COUNT(*) AS repeat_customers\nFROM marts.mart_customer_summary\nWHERE total_orders > 1\nGROUP BY customer_state\nORDER BY repeat_customers DESC\nLIMIT 5;\n"
+    },
+    {
+      "id": "q17",
+      "difficulty": "medium",
+      "question": "What is the overall on-time delivery rate percentage across all delivered orders?",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 10.99,
+      "reason": "PASSED",
+      "generated_sql": "SELECT ROUND((1.0 - (SUM(late_orders_count)::NUMERIC / SUM(total_delivered_orders)::NUMERIC)) * 100, 2) AS on_time_rate_pct\nFROM marts.mart_delivery_performance;\n",
+      "expected_sql": "SELECT ROUND((1.0 - (SUM(late_orders_count)::NUMERIC / SUM(total_delivered_orders)::NUMERIC)) * 100, 2) AS on_time_rate_pct\nFROM marts.mart_delivery_performance;\n"
+    },
+    {
+      "id": "q18",
+      "difficulty": "medium",
+      "question": "What was the average monthly order volume in 2018?",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 11.12,
+      "reason": "PASSED",
+      "generated_sql": "WITH monthly_orders AS (\n    SELECT DATE_TRUNC('month', sales_date) AS mth, SUM(total_orders) AS orders\n    FROM marts.mart_daily_sales\n    WHERE EXTRACT(YEAR FROM sales_date) = 2018\n    GROUP BY 1\n)\nSELECT AVG(orders) AS avg_monthly_orders\nFROM monthly_orders;\n",
+      "expected_sql": "WITH monthly_orders AS (\n    SELECT DATE_TRUNC('month', sales_date) AS mth, SUM(total_orders) AS orders\n    FROM marts.mart_daily_sales\n    WHERE EXTRACT(YEAR FROM sales_date) = 2018\n    GROUP BY 1\n)\nSELECT AVG(orders) AS avg_monthly_orders\nFROM monthly_orders;\n"
+    },
+    {
+      "id": "q19",
+      "difficulty": "medium",
+      "question": "Show the top 5 days with the highest daily revenue in 2018.",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 11.01,
+      "reason": "PASSED",
+      "generated_sql": "SELECT sales_date, total_revenue, total_orders\nFROM marts.mart_daily_sales\nWHERE EXTRACT(YEAR FROM sales_date) = 2018\nORDER BY total_revenue DESC\nLIMIT 5;\n",
+      "expected_sql": "SELECT sales_date, total_revenue, total_orders\nFROM marts.mart_daily_sales\nWHERE EXTRACT(YEAR FROM sales_date) = 2018\nORDER BY total_revenue DESC\nLIMIT 5;\n"
+    },
+    {
+      "id": "q20",
+      "difficulty": "medium",
+      "question": "What is the average lifetime spend of customers who made more than one order?",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 10.7,
+      "reason": "PASSED",
+      "generated_sql": "SELECT AVG(total_spend) AS avg_repeat_spend\nFROM marts.mart_customer_summary\nWHERE total_orders > 1;\n",
+      "expected_sql": "SELECT AVG(total_spend) AS avg_repeat_spend\nFROM marts.mart_customer_summary\nWHERE total_orders > 1;\n"
+    },
+    {
+      "id": "q21",
+      "difficulty": "medium",
+      "question": "Show the monthly average delivery days compared to estimated delivery days for 2018.",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 10.69,
+      "reason": "PASSED",
+      "generated_sql": "SELECT year_month, avg_delivery_days, avg_estimated_delivery_days\nFROM marts.mart_delivery_performance\nWHERE year_month LIKE '2018-%'\nORDER BY year_month ASC;\n",
+      "expected_sql": "SELECT year_month, avg_delivery_days, avg_estimated_delivery_days\nFROM marts.mart_delivery_performance\nWHERE year_month LIKE '2018-%'\nORDER BY year_month ASC;\n"
+    },
+    {
+      "id": "q22",
+      "difficulty": "medium",
+      "question": "Which 5 product categories have the highest total revenue per unit sold?",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 11.01,
+      "reason": "PASSED",
+      "generated_sql": "SELECT category_name,\n       SUM(total_revenue) / SUM(units_sold) AS revenue_per_unit\nFROM marts.mart_top_products\nGROUP BY category_name\nORDER BY revenue_per_unit DESC\nLIMIT 5;\n",
+      "expected_sql": "SELECT category_name,\n       SUM(total_revenue) / SUM(units_sold) AS revenue_per_unit\nFROM marts.mart_top_products\nGROUP BY category_name\nORDER BY revenue_per_unit DESC\nLIMIT 5;\n"
+    },
+    {
+      "id": "q23",
+      "difficulty": "hard",
+      "question": "What percentage of total revenue came from the top 3 product categories?",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 11.01,
+      "reason": "PASSED",
+      "generated_sql": "WITH cat_rev AS (\n    SELECT category_name, SUM(total_revenue) AS rev\n    FROM marts.mart_top_products\n    GROUP BY category_name\n),\ntop3 AS (\n    SELECT SUM(rev) AS top3_rev\n    FROM (SELECT rev FROM cat_rev ORDER BY rev DESC LIMIT 3) sub\n),\ntotal AS (\n    SELECT SUM(rev) AS all_rev FROM cat_rev\n)\nSELECT ROUND((top3.top3_rev / total.all_rev) * 100, 2) AS top3_revenue_pct\nFROM top3, total;\n",
+      "expected_sql": "WITH cat_rev AS (\n    SELECT category_name, SUM(total_revenue) AS rev\n    FROM marts.mart_top_products\n    GROUP BY category_name\n),\ntop3 AS (\n    SELECT SUM(rev) AS top3_rev\n    FROM (SELECT rev FROM cat_rev ORDER BY rev DESC LIMIT 3) sub\n),\ntotal AS (\n    SELECT SUM(rev) AS all_rev FROM cat_rev\n)\nSELECT ROUND((top3.top3_rev / total.all_rev) * 100, 2) AS top3_revenue_pct\nFROM top3, total;\n"
+    },
+    {
+      "id": "q24",
+      "difficulty": "hard",
+      "question": "Calculate the month-over-month revenue growth percentage for 2018.",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 11.85,
+      "reason": "PASSED",
+      "generated_sql": "WITH monthly AS (\n    SELECT DATE_TRUNC('month', sales_date)::DATE AS sales_month,\n           SUM(total_revenue) AS revenue\n    FROM marts.mart_daily_sales\n    WHERE EXTRACT(YEAR FROM sales_date) = 2018\n    GROUP BY 1\n)\nSELECT sales_month, revenue,\n       ROUND(((revenue - LAG(revenue) OVER (ORDER BY sales_month)) / LAG(revenue) OVER (ORDER BY sales_month)) * 100, 2) AS mom_growth_pct\nFROM monthly\nORDER BY sales_month ASC;\n",
+      "expected_sql": "WITH monthly AS (\n    SELECT DATE_TRUNC('month', sales_date)::DATE AS sales_month,\n           SUM(total_revenue) AS revenue\n    FROM marts.mart_daily_sales\n    WHERE EXTRACT(YEAR FROM sales_date) = 2018\n    GROUP BY 1\n)\nSELECT sales_month, revenue,\n       ROUND(((revenue - LAG(revenue) OVER (ORDER BY sales_month)) / LAG(revenue) OVER (ORDER BY sales_month)) * 100, 2) AS mom_growth_pct\nFROM monthly\nORDER BY sales_month ASC;\n"
+    },
+    {
+      "id": "q25",
+      "difficulty": "hard",
+      "question": "Identify months where average delivery days exceeded 15 days along with total delivered orders.",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 10.6,
+      "reason": "PASSED",
+      "generated_sql": "SELECT year_month, total_delivered_orders, avg_delivery_days, pct_late_vs_estimated\nFROM marts.mart_delivery_performance\nWHERE avg_delivery_days > 15.0\nORDER BY avg_delivery_days DESC;\n",
+      "expected_sql": "SELECT year_month, total_delivered_orders, avg_delivery_days, pct_late_vs_estimated\nFROM marts.mart_delivery_performance\nWHERE avg_delivery_days > 15.0\nORDER BY avg_delivery_days DESC;\n"
+    },
+    {
+      "id": "q26",
+      "difficulty": "hard",
+      "question": "Combine monthly total revenue from daily sales with monthly late delivery percentage for 2018.",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 13.09,
+      "reason": "PASSED",
+      "generated_sql": "SELECT d.sales_month, d.total_revenue, p.pct_late_vs_estimated\nFROM (\n    SELECT DATE_TRUNC('month', sales_date)::DATE AS sales_month,\n           TO_CHAR(sales_date, 'YYYY-MM') AS ym,\n           SUM(total_revenue) AS total_revenue\n    FROM marts.mart_daily_sales\n    WHERE EXTRACT(YEAR FROM sales_date) = 2018\n    GROUP BY 1, 2\n) d\nJOIN marts.mart_delivery_performance p ON d.ym = p.year_month\nORDER BY d.sales_month ASC;\n",
+      "expected_sql": "SELECT d.sales_month, d.total_revenue, p.pct_late_vs_estimated\nFROM (\n    SELECT DATE_TRUNC('month', sales_date)::DATE AS sales_month,\n           TO_CHAR(sales_date, 'YYYY-MM') AS ym,\n           SUM(total_revenue) AS total_revenue\n    FROM marts.mart_daily_sales\n    WHERE EXTRACT(YEAR FROM sales_date) = 2018\n    GROUP BY 1, 2\n) d\nJOIN marts.mart_delivery_performance p ON d.ym = p.year_month\nORDER BY d.sales_month ASC;\n"
+    },
+    {
+      "id": "q27",
+      "difficulty": "hard",
+      "question": "Find the top 3 states by total spend and their average spend per buyer.",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 11.1,
+      "reason": "PASSED",
+      "generated_sql": "SELECT customer_state,\n       SUM(total_spend) AS total_spend,\n       ROUND(SUM(total_spend) / COUNT(DISTINCT customer_unique_id), 2) AS avg_spend_per_buyer\nFROM marts.mart_customer_summary\nGROUP BY customer_state\nORDER BY total_spend DESC\nLIMIT 3;\n",
+      "expected_sql": "SELECT customer_state,\n       SUM(total_spend) AS total_spend,\n       ROUND(SUM(total_spend) / COUNT(DISTINCT customer_unique_id), 2) AS avg_spend_per_buyer\nFROM marts.mart_customer_summary\nGROUP BY customer_state\nORDER BY total_spend DESC\nLIMIT 3;\n"
+    },
+    {
+      "id": "q28",
+      "difficulty": "hard",
+      "question": "What was the 7-day rolling average revenue for the last 7 days of recorded daily sales?",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 10.69,
+      "reason": "PASSED",
+      "generated_sql": "WITH rolling AS (\n    SELECT sales_date, total_revenue,\n           AVG(total_revenue) OVER (ORDER BY sales_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS rolling_7d_avg\n    FROM marts.mart_daily_sales\n)\nSELECT sales_date, total_revenue, ROUND(rolling_7d_avg, 2) AS rolling_7d_avg\nFROM rolling\nORDER BY sales_date DESC\nLIMIT 7;\n",
+      "expected_sql": "WITH rolling AS (\n    SELECT sales_date, total_revenue,\n           AVG(total_revenue) OVER (ORDER BY sales_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS rolling_7d_avg\n    FROM marts.mart_daily_sales\n)\nSELECT sales_date, total_revenue, ROUND(rolling_7d_avg, 2) AS rolling_7d_avg\nFROM rolling\nORDER BY sales_date DESC\nLIMIT 7;\n"
+    },
+    {
+      "id": "q29",
+      "difficulty": "hard",
+      "question": "Compare the average spend of single-order buyers versus multi-order repeat buyers.",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 10.47,
+      "reason": "PASSED",
+      "generated_sql": "SELECT CASE WHEN total_orders = 1 THEN 'Single Order' ELSE 'Repeat Buyer' END AS buyer_type,\n       COUNT(*) AS buyer_count,\n       ROUND(AVG(total_spend), 2) AS avg_spend\nFROM marts.mart_customer_summary\nGROUP BY 1;\n",
+      "expected_sql": "SELECT CASE WHEN total_orders = 1 THEN 'Single Order' ELSE 'Repeat Buyer' END AS buyer_type,\n       COUNT(*) AS buyer_count,\n       ROUND(AVG(total_spend), 2) AS avg_spend\nFROM marts.mart_customer_summary\nGROUP BY 1;\n"
+    },
+    {
+      "id": "q30",
+      "difficulty": "hard",
+      "question": "Identify months in 2018 where the late delivery rate was above 5 percent.",
+      "passed": true,
+      "guardrail_blocked": false,
+      "latency_ms": 10.24,
+      "reason": "PASSED",
+      "generated_sql": "SELECT year_month, total_delivered_orders, late_orders_count, pct_late_vs_estimated\nFROM marts.mart_delivery_performance\nWHERE year_month LIKE '2018-%' AND pct_late_vs_estimated > 5.0\nORDER BY pct_late_vs_estimated DESC;\n",
+      "expected_sql": "SELECT year_month, total_delivered_orders, late_orders_count, pct_late_vs_estimated\nFROM marts.mart_delivery_performance\nWHERE year_month LIKE '2018-%' AND pct_late_vs_estimated > 5.0\nORDER BY pct_late_vs_estimated DESC;\n"
+    }
+  ]
+}

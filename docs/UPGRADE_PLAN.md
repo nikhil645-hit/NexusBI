@@ -77,3 +77,4 @@ The upgrade focuses on adding tangible engineering proof (AST guardrail test sui
 - Run full test suite (`ruff`, `pytest`, `dbt test`, `benchmark --mock`, headless Streamlit check).
 - Create `docs/CHANGELOG.md`.
 - Generate final completion summary.
+

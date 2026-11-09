@@ -1,0 +1,365 @@
+# ==============================================================================
+# benchmarks/questions.yaml - 30 Text-to-SQL Benchmark Questions & Ground Truth
+#
+# Covers the 4 analytical data marts:
+#   - marts.mart_daily_sales
+#   - marts.mart_top_products
+#   - marts.mart_customer_summary
+#   - marts.mart_delivery_performance
+#
+# Difficulties:
+#   - easy: Single table aggregations, filters, simple rankings (10 questions)
+#   - medium: Groupings, multi-conditions, date truncation, subqueries (12 questions)
+#   - hard: Complex CTEs, multi-mart correlation, percentage of totals, window logic (8 questions)
+# ==============================================================================
+
+questions:
+  # ----------------------------------------------------------------------------
+  # Easy Questions (1-10)
+  # ----------------------------------------------------------------------------
+  - id: q01
+    difficulty: easy
+    question: "What is the total revenue generated across all recorded sales?"
+    expected_sql: |
+      SELECT SUM(total_revenue) AS total_revenue
+      FROM marts.mart_daily_sales;
+    notes: "Direct scalar aggregation on mart_daily_sales."
+
+  - id: q02
+    difficulty: easy
+    question: "What is the total count of distinct orders placed across all dates?"
+    expected_sql: |
+      SELECT SUM(total_orders) AS total_orders
+      FROM marts.mart_daily_sales;
+    notes: "Summing pre-aggregated order counts in mart_daily_sales."
+
+  - id: q03
+    difficulty: easy
+    question: "List the top 5 product categories by total units sold."
+    expected_sql: |
+      SELECT category_name, SUM(units_sold) AS total_units
+      FROM marts.mart_top_products
+      GROUP BY category_name
+      ORDER BY total_units DESC
+      LIMIT 5;
+    notes: "Aggregation and ranking on mart_top_products."
+
+  - id: q04
+    difficulty: easy
+    question: "Which are the top 5 product categories by total revenue?"
+    expected_sql: |
+      SELECT category_name, SUM(total_revenue) AS total_revenue
+      FROM marts.mart_top_products
+      GROUP BY category_name
+      ORDER BY total_revenue DESC
+      LIMIT 5;
+    notes: "Revenue ranking on product categories."
+
+  - id: q05
+    difficulty: easy
+    question: "What is the average order value across all sales?"
+    expected_sql: |
+      SELECT SUM(total_revenue) / SUM(total_orders) AS overall_aov
+      FROM marts.mart_daily_sales;
+    notes: "Weighted average order value across daily sales."
+
+  - id: q06
+    difficulty: easy
+    question: "Which 5 Brazilian states have the highest number of unique customers?"
+    expected_sql: |
+      SELECT customer_state, COUNT(DISTINCT customer_unique_id) AS total_customers
+      FROM marts.mart_customer_summary
+      GROUP BY customer_state
+      ORDER BY total_customers DESC
+      LIMIT 5;
+    notes: "State-level customer count ranking."
+
+  - id: q07
+    difficulty: easy
+    question: "What was the average delivery time in days across all months?"
+    expected_sql: |
+      SELECT AVG(avg_delivery_days) AS avg_delivery_days
+      FROM marts.mart_delivery_performance;
+    notes: "Simple average of monthly delivery times."
+
+  - id: q08
+    difficulty: easy
+    question: "How many total orders were delivered late across all recorded months?"
+    expected_sql: |
+      SELECT SUM(late_orders_count) AS total_late_orders
+      FROM marts.mart_delivery_performance;
+    notes: "Sum of late orders in mart_delivery_performance."
+
+  - id: q09
+    difficulty: easy
+    question: "Show the daily sales and orders for August 2018."
+    expected_sql: |
+      SELECT sales_date, total_orders, total_revenue
+      FROM marts.mart_daily_sales
+      WHERE sales_date >= '2018-08-01' AND sales_date <= '2018-08-31'
+      ORDER BY sales_date ASC;
+    notes: "Date range filter on mart_daily_sales."
+
+  - id: q10
+    difficulty: easy
+    question: "What is the total spend of customers from Sao Paulo state (SP)?"
+    expected_sql: |
+      SELECT SUM(total_spend) AS total_spend_sp
+      FROM marts.mart_customer_summary
+      WHERE customer_state = 'SP';
+    notes: "Filtered aggregation by state on mart_customer_summary."
+
+  # ----------------------------------------------------------------------------
+  # Medium Questions (11-22)
+  # ----------------------------------------------------------------------------
+  - id: q11
+    difficulty: medium
+    question: "What was the monthly revenue trend for the year 2018?"
+    expected_sql: |
+      SELECT DATE_TRUNC('month', sales_date)::DATE AS sales_month,
+             SUM(total_revenue) AS monthly_revenue
+      FROM marts.mart_daily_sales
+      WHERE EXTRACT(YEAR FROM sales_date) = 2018
+      GROUP BY 1
+      ORDER BY 1 ASC;
+    notes: "Monthly date truncation and grouping for a specific year."
+
+  - id: q12
+    difficulty: medium
+    question: "Which month had the highest percentage of late deliveries?"
+    expected_sql: |
+      SELECT year_month, pct_late_vs_estimated
+      FROM marts.mart_delivery_performance
+      ORDER BY pct_late_vs_estimated DESC
+      LIMIT 1;
+    notes: "Ordering by pre-calculated late delivery percentage."
+
+  - id: q13
+    difficulty: medium
+    question: "What are the top 10 customer cities ranked by total spend?"
+    expected_sql: |
+      SELECT customer_city, SUM(total_spend) AS city_spend
+      FROM marts.mart_customer_summary
+      GROUP BY customer_city
+      ORDER BY city_spend DESC
+      LIMIT 10;
+    notes: "City-level aggregation and top 10 limit."
+
+  - id: q14
+    difficulty: medium
+    question: "Show the top 3 product categories by average unit price with at least 50 units sold."
+    expected_sql: |
+      SELECT category_name,
+             SUM(total_revenue) / SUM(units_sold) AS avg_unit_price,
+             SUM(units_sold) AS total_units
+      FROM marts.mart_top_products
+      GROUP BY category_name
+      HAVING SUM(units_sold) >= 50
+      ORDER BY avg_unit_price DESC
+      LIMIT 3;
+    notes: "HAVING clause filtering on aggregated units."
+
+  - id: q15
+    difficulty: medium
+    question: "What was the total freight cost collected per month in 2018?"
+    expected_sql: |
+      SELECT DATE_TRUNC('month', sales_date)::DATE AS sales_month,
+             SUM(total_freight) AS monthly_freight
+      FROM marts.mart_daily_sales
+      WHERE EXTRACT(YEAR FROM sales_date) = 2018
+      GROUP BY 1
+      ORDER BY 1 ASC;
+    notes: "Monthly freight calculation with date extraction."
+
+  - id: q16
+    difficulty: medium
+    question: "How many repeat customers with more than 1 order are in each state for the top 5 states?"
+    expected_sql: |
+      SELECT customer_state, COUNT(*) AS repeat_customers
+      FROM marts.mart_customer_summary
+      WHERE total_orders > 1
+      GROUP BY customer_state
+      ORDER BY repeat_customers DESC
+      LIMIT 5;
+    notes: "Filter on total_orders > 1 and group by state."
+
+  - id: q17
+    difficulty: medium
+    question: "What is the overall on-time delivery rate percentage across all delivered orders?"
+    expected_sql: |
+      SELECT ROUND((1.0 - (SUM(late_orders_count)::NUMERIC / SUM(total_delivered_orders)::NUMERIC)) * 100, 2) AS on_time_rate_pct
+      FROM marts.mart_delivery_performance;
+    notes: "Ratio calculation between late orders and total delivered orders."
+
+  - id: q18
+    difficulty: medium
+    question: "What was the average monthly order volume in 2018?"
+    expected_sql: |
+      WITH monthly_orders AS (
+          SELECT DATE_TRUNC('month', sales_date) AS mth, SUM(total_orders) AS orders
+          FROM marts.mart_daily_sales
+          WHERE EXTRACT(YEAR FROM sales_date) = 2018
+          GROUP BY 1
+      )
+      SELECT AVG(orders) AS avg_monthly_orders
+      FROM monthly_orders;
+    notes: "CTE aggregating daily orders into months then taking average."
+
+  - id: q19
+    difficulty: medium
+    question: "Show the top 5 days with the highest daily revenue in 2018."
+    expected_sql: |
+      SELECT sales_date, total_revenue, total_orders
+      FROM marts.mart_daily_sales
+      WHERE EXTRACT(YEAR FROM sales_date) = 2018
+      ORDER BY total_revenue DESC
+      LIMIT 5;
+    notes: "Ordering by daily revenue within a year."
+
+  - id: q20
+    difficulty: medium
+    question: "What is the average lifetime spend of customers who made more than one order?"
+    expected_sql: |
+      SELECT AVG(total_spend) AS avg_repeat_spend
+      FROM marts.mart_customer_summary
+      WHERE total_orders > 1;
+    notes: "Average spend for repeat customer cohort."
+
+  - id: q21
+    difficulty: medium
+    question: "Show the monthly average delivery days compared to estimated delivery days for 2018."
+    expected_sql: |
+      SELECT year_month, avg_delivery_days, avg_estimated_delivery_days
+      FROM marts.mart_delivery_performance
+      WHERE year_month LIKE '2018-%'
+      ORDER BY year_month ASC;
+    notes: "Comparison of actual vs promised delivery days by month."
+
+  - id: q22
+    difficulty: medium
+    question: "Which 5 product categories have the highest total revenue per unit sold?"
+    expected_sql: |
+      SELECT category_name,
+             SUM(total_revenue) / SUM(units_sold) AS revenue_per_unit
+      FROM marts.mart_top_products
+      GROUP BY category_name
+      ORDER BY revenue_per_unit DESC
+      LIMIT 5;
+    notes: "Derived ratio ranking on product categories."
+
+  # ----------------------------------------------------------------------------
+  # Hard Questions (23-30)
+  # ----------------------------------------------------------------------------
+  - id: q23
+    difficulty: hard
+    question: "What percentage of total revenue came from the top 3 product categories?"
+    expected_sql: |
+      WITH cat_rev AS (
+          SELECT category_name, SUM(total_revenue) AS rev
+          FROM marts.mart_top_products
+          GROUP BY category_name
+      ),
+      top3 AS (
+          SELECT SUM(rev) AS top3_rev
+          FROM (SELECT rev FROM cat_rev ORDER BY rev DESC LIMIT 3) sub
+      ),
+      total AS (
+          SELECT SUM(rev) AS all_rev FROM cat_rev
+      )
+      SELECT ROUND((top3.top3_rev / total.all_rev) * 100, 2) AS top3_revenue_pct
+      FROM top3, total;
+    notes: "Multi-CTE calculation of percentage share of top-N."
+
+  - id: q24
+    difficulty: hard
+    question: "Calculate the month-over-month revenue growth percentage for 2018."
+    expected_sql: |
+      WITH monthly AS (
+          SELECT DATE_TRUNC('month', sales_date)::DATE AS sales_month,
+                 SUM(total_revenue) AS revenue
+          FROM marts.mart_daily_sales
+          WHERE EXTRACT(YEAR FROM sales_date) = 2018
+          GROUP BY 1
+      )
+      SELECT sales_month, revenue,
+             ROUND(((revenue - LAG(revenue) OVER (ORDER BY sales_month)) / LAG(revenue) OVER (ORDER BY sales_month)) * 100, 2) AS mom_growth_pct
+      FROM monthly
+      ORDER BY sales_month ASC;
+    notes: "Window function LAG calculation for MoM growth rate."
+
+  - id: q25
+    difficulty: hard
+    question: "Identify months where average delivery days exceeded 15 days along with total delivered orders."
+    expected_sql: |
+      SELECT year_month, total_delivered_orders, avg_delivery_days, pct_late_vs_estimated
+      FROM marts.mart_delivery_performance
+      WHERE avg_delivery_days > 15.0
+      ORDER BY avg_delivery_days DESC;
+    notes: "Filter on delivery latency threshold."
+
+  - id: q26
+    difficulty: hard
+    question: "Combine monthly total revenue from daily sales with monthly late delivery percentage for 2018."
+    expected_sql: |
+      SELECT d.sales_month, d.total_revenue, p.pct_late_vs_estimated
+      FROM (
+          SELECT DATE_TRUNC('month', sales_date)::DATE AS sales_month,
+                 TO_CHAR(sales_date, 'YYYY-MM') AS ym,
+                 SUM(total_revenue) AS total_revenue
+          FROM marts.mart_daily_sales
+          WHERE EXTRACT(YEAR FROM sales_date) = 2018
+          GROUP BY 1, 2
+      ) d
+      JOIN marts.mart_delivery_performance p ON d.ym = p.year_month
+      ORDER BY d.sales_month ASC;
+    notes: "Cross-mart join linking sales and delivery performance."
+
+  - id: q27
+    difficulty: hard
+    question: "Find the top 3 states by total spend and their average spend per buyer."
+    expected_sql: |
+      SELECT customer_state,
+             SUM(total_spend) AS total_spend,
+             ROUND(SUM(total_spend) / COUNT(DISTINCT customer_unique_id), 2) AS avg_spend_per_buyer
+      FROM marts.mart_customer_summary
+      GROUP BY customer_state
+      ORDER BY total_spend DESC
+      LIMIT 3;
+    notes: "Aggregation, state grouping, and average spend per customer."
+
+  - id: q28
+    difficulty: hard
+    question: "What was the 7-day rolling average revenue for the last 7 days of recorded daily sales?"
+    expected_sql: |
+      WITH rolling AS (
+          SELECT sales_date, total_revenue,
+                 AVG(total_revenue) OVER (ORDER BY sales_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS rolling_7d_avg
+          FROM marts.mart_daily_sales
+      )
+      SELECT sales_date, total_revenue, ROUND(rolling_7d_avg, 2) AS rolling_7d_avg
+      FROM rolling
+      ORDER BY sales_date DESC
+      LIMIT 7;
+    notes: "Window function rolling 7-day average revenue."
+
+  - id: q29
+    difficulty: hard
+    question: "Compare the average spend of single-order buyers versus multi-order repeat buyers."
+    expected_sql: |
+      SELECT CASE WHEN total_orders = 1 THEN 'Single Order' ELSE 'Repeat Buyer' END AS buyer_type,
+             COUNT(*) AS buyer_count,
+             ROUND(AVG(total_spend), 2) AS avg_spend
+      FROM marts.mart_customer_summary
+      GROUP BY 1;
+    notes: "Cohort segmentation with CASE WHEN and aggregate comparison."
+
+  - id: q30
+    difficulty: hard
+    question: "Identify months in 2018 where the late delivery rate was above 5 percent."
+    expected_sql: |
+      SELECT year_month, total_delivered_orders, late_orders_count, pct_late_vs_estimated
+      FROM marts.mart_delivery_performance
+      WHERE year_month LIKE '2018-%' AND pct_late_vs_estimated > 5.0
+      ORDER BY pct_late_vs_estimated DESC;
+    notes: "Multi-condition filter on monthly delivery SLA violations."
+

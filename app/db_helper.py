@@ -13,7 +13,11 @@ import os
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
+import warnings
 import pandas as pd
+
+# Suppress DBAPI2 user warning for pandas read_sql_query with psycopg2
+warnings.filterwarnings("ignore", category=UserWarning, module="pandas")
 
 # Load environment variables from .env
 _dotenv_path = Path(__file__).resolve().parent.parent / ".env"

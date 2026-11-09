@@ -347,3 +347,4 @@ def test_summary_report(capsys):
     print(f" Target Schema                         : marts")
     print(f" Whitelisted Tables                    : {', '.join(sorted(ALLOWED_MART_TABLES))}")
     print("=" * 70)
+
