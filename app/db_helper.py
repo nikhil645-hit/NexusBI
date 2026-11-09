@@ -55,7 +55,7 @@ def _get_config_value(keys: Union[List[str], str], default: str = "") -> str:
     # 1. Check os.environ
     for k in keys:
         val = os.getenv(k)
-        if val and "placeholder" not in val.lower() and "your-" not in val.lower():
+        if val and "placeholder" not in val.lower() and "your-" not in val.lower() and "your_" not in val.lower():
             return val
 
     # 2. Check st.secrets (Streamlit Community Cloud secrets management)
@@ -66,7 +66,7 @@ def _get_config_value(keys: Union[List[str], str], default: str = "") -> str:
             for k in keys:
                 if k in st.secrets:
                     val = str(st.secrets[k])
-                    if val and "placeholder" not in val.lower() and "your-" not in val.lower():
+                    if val and "placeholder" not in val.lower() and "your-" not in val.lower() and "your_" not in val.lower():
                         return val
     except Exception:
         pass
@@ -304,13 +304,24 @@ def get_marts_schema_text() -> str:
         return STATIC_MARTS_SCHEMA
 
 
-def execute_marts_query(sanitized_sql: str) -> pd.DataFrame:
+def execute_marts_query(sanitized_sql: str, is_mock_llm: bool = False) -> pd.DataFrame:
     """
     Executes a sanitized read-only query against the data warehouse.
+    If is_mock_llm=True:
+      - Strictly prohibits execution against a live database.
+      - If live database is connected, raises RuntimeError.
+      - Returns mock/synthetic data only when DEMO_MODE=1 is set.
     If warehouse is not connected or unreachable:
       - Uses mock data ONLY if DEMO_MODE=1 is set.
       - Otherwise, raises ConnectionError("Database not connected").
     """
+    if is_mock_llm:
+        if is_database_live():
+            raise RuntimeError("Mock LLM + live DB is impossible: mock adapter queries are strictly prohibited from running against a live warehouse.")
+        if is_demo_mode():
+            return _generate_mock_results(sanitized_sql)
+        raise ConnectionError("Database not connected and DEMO_MODE is not enabled.")
+
     if not is_warehouse_configured():
         if is_demo_mode():
             return _generate_mock_results(sanitized_sql)

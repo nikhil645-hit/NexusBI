@@ -10,13 +10,17 @@
 # database execution, the error is fed back to the LLM to self-correct.
 # ==============================================================================
 
-import os
 import re
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional
 
 import yaml
+
+try:
+    from app.db_helper import _get_config_value, is_demo_mode
+except ModuleNotFoundError:
+    from db_helper import _get_config_value, is_demo_mode
 
 try:
     import streamlit as st
@@ -119,10 +123,94 @@ Classify the user question into exactly one of five categories:
 Reply with ONLY the exact keyword: OUT_OF_SCOPE, DASHBOARD_REQUEST, DATA_QUERY, BUSINESS_STRATEGY, or ARCHITECTURE_VIVA. If unsure or ambiguous, reply OUT_OF_SCOPE."""
 
 
+# ==============================================================================
+# Regex Patterns for Deterministic Intent Pre-Check
+# Uses strict whole-word and phrase matching with word boundaries (\b).
+# Context-aware: Distinguishes coding help requests from stack questions,
+# and prompt injection / trivia from valid pipeline / guardrail architecture questions.
+# ==============================================================================
+
+# 1. Clear Coding Help Requests (must NOT block questions about project's tech stack like "why did you use Python")
+CODING_HELP_PATTERNS = [
+    re.compile(r"\bwrite\s+(?:a|some|me)?\s*(?:python|javascript|java|c\+\+|html|css|rust|bash|powershell|sql)?\s*(?:code|script|program|function|class)\b", re.IGNORECASE),
+    re.compile(r"\b(?:print\s+hello\s*world|hello\s*world)\b", re.IGNORECASE),
+    re.compile(r"\bdebug\s+(?:this|my|the)\s*(?:code|script|error|function|traceback)\b", re.IGNORECASE),
+    re.compile(r"\bhelp\s+(?:me\s+)?debug\s+(?:this|my|the)\b", re.IGNORECASE),
+    re.compile(r"\bhow\s+(?:do\s+i|to)\s+(?:code|program|write)\b.*?\bin\s+(?:python|javascript|c\+\+|java|rust|html|css)\b", re.IGNORECASE),
+    re.compile(r"\b(?:leetcode|bubble\s+sort|binary\s+search|fibonacci)\b", re.IGNORECASE),
+    re.compile(r"\b(?:powershell|bash)\s+script\b", re.IGNORECASE),
+    re.compile(r"\b(?:react\s+component|html\s+code|css\s+code|sql\s+injection\s+script)\b", re.IGNORECASE),
+    re.compile(r"\bwrite\s+(?:a\s+)?python\b", re.IGNORECASE),
+]
+
+# 2. Chit-Chat / Greetings / Personal / Creative (word boundaries ensure 'sing' does not match 'using', 'missing', 'increasing')
+CHITCHAT_PATTERNS = [
+    re.compile(r"\bjokes?\b", re.IGNORECASE),
+    re.compile(r"\bwho\s+(?:are\s+you|made\s+you|created\s+you|is\s+your\s+creator)\b", re.IGNORECASE),
+    re.compile(r"\bwhat\s+is\s+your\s+name\b", re.IGNORECASE),
+    re.compile(r"\bhow\s+are\s+you\b", re.IGNORECASE),
+    re.compile(r"\bare\s+you\s+human\b", re.IGNORECASE),
+    re.compile(r"\b(?:sing\s+(?:me\s+)?a\s+song|sing\s+a\s+song|\bsing\b)\b", re.IGNORECASE),
+    re.compile(r"\bpoems?\b", re.IGNORECASE),
+    re.compile(r"\bessays?\b", re.IGNORECASE),
+    re.compile(r"\btell\s+me\s+a\s+story\b", re.IGNORECASE),
+    re.compile(r"\bdo\s+you\s+love\s+me\b", re.IGNORECASE),
+    re.compile(r"\bwhat\s+do\s+you\s+think\s+of\b", re.IGNORECASE),
+]
+
+# 3. Off-Topic Trivia & General Knowledge (strictly targeted: "president" or "weather" only triggers for clear non-business trivia)
+TRIVIA_PATTERNS = [
+    re.compile(r"\bwho\s+is\s+the\s+prime\s+minister\b", re.IGNORECASE),
+    re.compile(r"\bprime\s+minister\s+of\b", re.IGNORECASE),
+    re.compile(r"\bwho\s+is\s+the\s+president\b", re.IGNORECASE),
+    re.compile(r"\bpresident\s+of\s+(?:the\s+)?[a-z]+\b", re.IGNORECASE),
+    re.compile(r"\bcurrent\s+president\b", re.IGNORECASE),
+    re.compile(r"\bcapital\s+of\s+[a-z]+\b", re.IGNORECASE),
+    re.compile(r"\bwhat('?s|\s+is)\s+(?:the\s+)?weather\b", re.IGNORECASE),
+    re.compile(r"\bweather\s+(?:forecast|today|tomorrow)\b", re.IGNORECASE),
+    re.compile(r"^\s*(?:tell\s+me\s+the\s+)?weather\s+in\s+[a-z\s]+", re.IGNORECASE),
+    re.compile(r"\bdistance\s+to\s+the\s+moon\b", re.IGNORECASE),
+    re.compile(r"\bspeed\s+of\s+light\b", re.IGNORECASE),
+    re.compile(r"\bwho\s+won\s+the\s+world\s+cup\b", re.IGNORECASE),
+    re.compile(r"\btallest\s+building\b", re.IGNORECASE),
+    re.compile(r"\bpopulation\s+of\s+[a-z]+\b", re.IGNORECASE),
+    re.compile(r"\bwho\s+wrote\b", re.IGNORECASE),
+    re.compile(r"\bcurrency\s+of\s+[a-z]+\b", re.IGNORECASE),
+    re.compile(r"\bhow\s+old\s+is\s+[a-z]+\b", re.IGNORECASE),
+]
+
+# 4. Off-Topic Homework, Recipes, Translation
+MISC_OFFTOPIC_PATTERNS = [
+    re.compile(r"\brecipes?\b", re.IGNORECASE),
+    re.compile(r"\bhow\s+to\s+(?:bake|cook)\b", re.IGNORECASE),
+    re.compile(r"\bingredients\s+for\b", re.IGNORECASE),
+    re.compile(r"\btranslate\s+(?:this|to|into)\b", re.IGNORECASE),
+    re.compile(r"\bhow\s+do\s+you\s+say\s+.*in\s+[a-z]+\b", re.IGNORECASE),
+    re.compile(r"\bspanish\s+translation\b", re.IGNORECASE),
+    re.compile(r"\bmath\s+homework\b", re.IGNORECASE),
+    re.compile(r"\bsolve\s+(?:this\s+)?equation\b", re.IGNORECASE),
+    re.compile(r"\bcalculate\s+the\s+integral\b", re.IGNORECASE),
+    re.compile(r"\bderivative\s+of\b", re.IGNORECASE),
+    re.compile(r"\bsolve\s+for\s+x\b", re.IGNORECASE),
+    re.compile(r"\b2\s*\+\s*2\b", re.IGNORECASE),
+]
+
+# 5. Clear Prompt Injection / Jailbreaks (context-aware: ignores architecture questions about guardrail defense)
+INJECTION_PATTERNS = [
+    re.compile(r"\b(?:ignore|disregard|forget)\s+(?:all\s+|previous\s+|prior\s+)*(?:instructions|rules|prompts)\b", re.IGNORECASE),
+    re.compile(r"\b(?:reveal|show|print|leak|what\s+is|display)\s+(?:your\s+)?system\s+prompt\b", re.IGNORECASE),
+    re.compile(r"\boverride\s+(?:all\s+)?(?:system\s+)?(?:rules|prompts|guardrails?)\b", re.IGNORECASE),
+    re.compile(r"\b(?:can\s+you\s+|how\s+to\s+|please\s+)?bypass\s+(?:the\s+|all\s+)?(?:safety|guardrails?|filters?|rules?|security|limits?)\b", re.IGNORECASE),
+    re.compile(r"\bbypass\s+(?:all\s+)?(?:system|safety|filters?|security)\b", re.IGNORECASE),
+    re.compile(r"\b(?:act\s+as\s+dan|jailbreak)\b", re.IGNORECASE),
+    re.compile(r"\bprompt\s+injection\s+(?:attempt|payload|attack)\b", re.IGNORECASE),
+]
+
+
 def precheck_intent(question: str) -> Optional[str]:
     """
-    Ultra-fast deterministic keyword pre-check to cheaply classify obvious intents
-    (especially OUT_OF_SCOPE and DASHBOARD_REQUEST) without consuming LLM API calls.
+    Ultra-fast deterministic regex pre-check using strict whole-word and phrase boundaries.
+    Cheaply classifies obvious intents without LLM token cost.
     Returns the intent name if definitively identified, or None to fall back to LLM.
     """
     if not question or not question.strip():
@@ -130,54 +218,42 @@ def precheck_intent(question: str) -> Optional[str]:
 
     q = question.lower().strip()
 
-    # 1. Coding & Technical Non-BI requests
-    coding_patterns = [
-        "python", "javascript", "c++", "java code", "typescript", "write code",
-        "write a script", "html", "css", "debug", "write a program", "write a function",
-        "regex", "leetcode", "binary search", "bubble sort", "fibonacci", "node.js",
-        "react", "powershell", "bash script", "print hello", "hello world", "write a python",
-        "code to",
+    # 1. Check if this is a legitimate question about platform architecture or security defense:
+    # (e.g. "how does the guardrail prevent bypass", "why did you use Python", "how does the semantic layer prompt work")
+    arch_signals = [
+        "airbyte", "dbt", "airflow", "star schema", "dimensional model",
+        "guardrail", "prevent bypass", "semantic layer", "viva",
+        "pipeline", "raw schema", "staging", "ast guardrail",
     ]
-    if any(p in q for p in coding_patterns):
+    if any(sig in q for sig in arch_signals):
+        # Even if it mentions "bypass" or "prompt", it's asking about how our security defense works!
+        # Only block if it is an explicit direct prompt injection attempt:
+        if not any(pattern.search(q) for pattern in INJECTION_PATTERNS):
+            return "ARCHITECTURE_VIVA"
+
+    # 2. Check for clear prompt injections or jailbreaks
+    if any(pattern.search(q) for pattern in INJECTION_PATTERNS):
         return "OUT_OF_SCOPE"
 
-    # 2. Chit-chat / Greetings / Personal / Creative
-    chitchat_patterns = [
-        "joke", "who are you", "who made you", "what is your name", "how are you",
-        "sing", "poem", "essay", "tell me a story", "who is your creator",
-        "are you human", "what do you think of", "do you love me",
-    ]
-    if any(p in q for p in chitchat_patterns):
+    # 3. Check for clear coding help requests
+    if any(pattern.search(q) for pattern in CODING_HELP_PATTERNS):
         return "OUT_OF_SCOPE"
 
-    # 3. General Knowledge / Trivia
-    trivia_patterns = [
-        "prime minister", "president", "capital of", "weather", "distance to the moon",
-        "speed of light", "world cup", "tallest building", "population of", "who wrote",
-        "currency of", "how old is", "planet", "solar system",
-    ]
-    if any(p in q for p in trivia_patterns):
+    # 4. Check for creative / chit-chat / greetings
+    if any(pattern.search(q) for pattern in CHITCHAT_PATTERNS):
         return "OUT_OF_SCOPE"
 
-    # 4. Homework / Math / Recipes / Translation / Prompt Injection / Jailbreaks
-    misc_offtopic = [
-        "recipe", "how to bake", "how to cook", "ingredients",
-        "translate", "translation",
-        "equation", "homework", "integral", "derivative", "solve for x", "2+2", "2 + 2",
-        "ignore previous", "system prompt", "disregard all", "act as dan", "jailbreak",
-        "override rules", "forget all previous", "bypass", "prompt injection",
-    ]
-    if any(p in q for p in misc_offtopic):
+    # 5. Check for off-topic trivia
+    if any(pattern.search(q) for pattern in TRIVIA_PATTERNS):
         return "OUT_OF_SCOPE"
 
-    # 5. Obvious Dashboard requests
-    if "dashboard" in q or "cockpit" in q:
+    # 6. Check for homework / math / recipes / translation
+    if any(pattern.search(q) for pattern in MISC_OFFTOPIC_PATTERNS):
+        return "OUT_OF_SCOPE"
+
+    # 7. Obvious Dashboard requests
+    if re.search(r"\b(?:dashboards?|cockpits?|studio\s+view)\b", q):
         return "DASHBOARD_REQUEST"
-
-    # 6. Obvious Pipeline Architecture questions
-    arch_keywords = ["airbyte", "dbt", "airflow", "star schema", "dimensional model", "ast guardrail", "viva"]
-    if any(k in q for k in arch_keywords):
-        return "ARCHITECTURE_VIVA"
 
     return None
 
@@ -636,7 +712,9 @@ class MockLLMAdapter(BaseLLMAdapter):
         if any(w in q_lower for w in [
             "architecture", "pipeline", "airbyte", "dbt", "airflow", "viva",
             "schema", "guardrail", "sqlglot", "etl", "elt", "orchestrat",
-            "dimensional", "star schema", "staging", "raw schema"
+            "dimensional", "star schema", "staging", "raw schema", "why did you use",
+            "tech stack", "technologies used", "python libraries", "semantic layer",
+            "prompt engineering", "prompt work", "prevent bypass"
         ]):
             return "ARCHITECTURE_VIVA"
 
@@ -644,7 +722,7 @@ class MockLLMAdapter(BaseLLMAdapter):
         if any(w in q_lower for w in [
             "strategy", "marketing", "how to increase", "how can we increase",
             "playbook", "churn", "retention", "conversion rate", "tactical advice",
-            "growth", "expand into", "boost repeat"
+            "growth", "expand into", "boost repeat", "email campaigns"
         ]):
             return "BUSINESS_STRATEGY"
 
@@ -653,10 +731,11 @@ class MockLLMAdapter(BaseLLMAdapter):
             "sales", "revenue", "order", "product", "customer", "buyer",
             "delivery", "delivered", "shipping", "freight", "spend", "spent",
             "price", "aov", "carrier", "seller", "category", "categories",
-            "units", "transit", "sla", "brazil", "brazilian", "state", "city",
+            "units", "transit", "sla", "brazil", "brazilian", "state", "states", "city",
             "month", "monthly", "daily", "total", "count", "average", "avg",
             "top", "rank", "ranking", "highest", "lowest", "late", "items", "item",
-            "trend", "how many", "what is the", "which customer"
+            "trend", "how many", "what is the", "which customer", "delays", "weather",
+            "buckets", "dates", "transactions", "costs", "compliance", "patterns", "purchasing"
         ]
         if any(w in q_lower for w in data_keywords):
             return "DATA_QUERY"
@@ -789,24 +868,42 @@ def _extract_sql_from_text(text: str) -> str:
     return text.strip()
 
 
-def get_llm_adapter() -> BaseLLMAdapter:
-    """Factory creating the appropriate LLM adapter based on environment variables."""
-    provider = os.getenv("LLM_PROVIDER", "gemini").lower()
+def get_llm_adapter() -> Optional[BaseLLMAdapter]:
+    """
+    Factory creating the appropriate LLM adapter based on environment variables and st.secrets.
+    Returns None if no LLM API key is configured and DEMO_MODE=1 is not set.
+    MockLLMAdapter is ONLY used when DEMO_MODE=1 is explicitly enabled.
+    """
+    provider = _get_config_value(["LLM_PROVIDER"], "groq").lower()
 
     if provider == "groq":
-        api_key = os.getenv("GROQ_API_KEY", "")
-        if api_key and "your_" not in api_key:
-            model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+        api_key = _get_config_value(["GROQ_API_KEY"], "")
+        if api_key:
+            model = _get_config_value(["GROQ_MODEL"], "openai/gpt-oss-120b")
             return GroqCloudAdapter(api_key=api_key, model=model)
     elif provider == "gemini":
-        api_key = os.getenv("GEMINI_API_KEY", "")
-        if api_key and "your_" not in api_key:
+        api_key = _get_config_value(["GEMINI_API_KEY"], "")
+        if api_key:
             return GeminiAdapter(api_key=api_key)
     elif provider == "ollama":
-        model = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
-        base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+        model = _get_config_value(["OLLAMA_MODEL"], "llama3.2:3b")
+        base_url = _get_config_value(["OLLAMA_BASE_URL"], "http://127.0.0.1:11434")
         return OllamaAdapter(model=model, base_url=base_url)
 
-    # Fallback to Mock Adapter with a notification
-    return MockLLMAdapter()
+    # Check other keys if provider didn't match directly
+    groq_key = _get_config_value(["GROQ_API_KEY"], "")
+    if groq_key:
+        model = _get_config_value(["GROQ_MODEL"], "openai/gpt-oss-120b")
+        return GroqCloudAdapter(api_key=groq_key, model=model)
+
+    gemini_key = _get_config_value(["GEMINI_API_KEY"], "")
+    if gemini_key:
+        return GeminiAdapter(api_key=gemini_key)
+
+    # Use MockLLMAdapter ONLY when DEMO_MODE=1 is set explicitly!
+    if is_demo_mode():
+        return MockLLMAdapter()
+
+    # Never silently fall back to MockLLMAdapter
+    return None
 

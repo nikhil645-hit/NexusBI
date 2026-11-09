@@ -48,7 +48,7 @@ try:
         is_database_live,
         is_demo_mode,
     )
-    from app.llm_helper import detect_dashboard_type, get_llm_adapter
+    from app.llm_helper import MockLLMAdapter, detect_dashboard_type, get_llm_adapter
     from app.sql_validator import validate_and_sanitize_sql
 except ModuleNotFoundError:
     from audit_logger import log_query_event
@@ -59,7 +59,7 @@ except ModuleNotFoundError:
         is_database_live,
         is_demo_mode,
     )
-    from llm_helper import detect_dashboard_type, get_llm_adapter
+    from llm_helper import MockLLMAdapter, detect_dashboard_type, get_llm_adapter
     from sql_validator import validate_and_sanitize_sql
 
 # ------------------------------------------------------------------------------
@@ -593,9 +593,27 @@ if user_prompt:
 
     # 2. Process with LLM and Security Guardrails
     with st.chat_message("assistant"):
+        if is_demo_mode():
+            st.caption("⚠️ *DEMO DATA - not real*")
         message_placeholder = st.empty()
         schema_text = get_marts_schema_text()
         llm = get_llm_adapter()
+        if llm is None:
+            err_msg = "🚨 **LLM not configured**: No valid LLM API key configured (GROQ_API_KEY or GEMINI_API_KEY). Please add your API key in environment variables or Streamlit Secrets, or set `DEMO_MODE=1` to use synthetic demo mode."
+            message_placeholder.error("LLM not configured")
+            st.error(err_msg)
+            st.session_state.messages.append({"role": "assistant", "content": err_msg})
+            log_query_event(
+                session_id=st.session_state.session_id,
+                intent="UNKNOWN",
+                question=user_prompt,
+                generated_sql=None,
+                guardrail_result="BLOCKED",
+                rows_returned=0,
+                latency_ms=0.0,
+                error="LLM not configured",
+            )
+            st.stop()
         t_pipeline_start = time.time()
 
         # Determine Intent (Auto-detect or Manual Override from Sidebar)
@@ -612,11 +630,13 @@ if user_prompt:
                 except Exception:
                     intent = "OUT_OF_SCOPE"
 
+        demo_banner = "⚠️ **DEMO DATA - not real**\n\n" if is_demo_mode() else ""
+
         # ----------------------------------------------------------------------
         # Path OUT_OF_SCOPE: Off-topic questions (coding, trivia, chit-chat, etc.)
         # ----------------------------------------------------------------------
         if intent == "OUT_OF_SCOPE":
-            out_of_scope_msg = (
+            out_of_scope_msg = demo_banner + (
                 "👋 I'm the **NexusBI Assistant**, focused specifically on exploring Brazilian E-Commerce (Olist) data, "
                 "visualizing analytics dashboards, e-commerce business strategy, and data engineering pipeline architecture.\n\n"
                 "I cannot help with general coding, homework, trivia, or non-ecommerce topics. "
@@ -671,7 +691,7 @@ if user_prompt:
             }
             title = dtype_titles.get(dtype, "📈 Sales & Revenue Dashboard")
 
-            success_msg = (
+            success_msg = demo_banner + (
                 f"### 🎉 {title} Generated Successfully!\n\n"
                 f"Your complete interactive dashboard is active and querying live data marts on AWS RDS Sydney.\n\n"
                 f"- 🔗 **Local URL Link:** [`http://localhost:8501/?dashboard={dtype}`](http://localhost:8501/?dashboard={dtype})\n"
@@ -730,6 +750,9 @@ if user_prompt:
                     )
                 except Exception as e:
                     response_text = f"The advisory assistant encountered an error ({type(e).__name__}). Please retry shortly."
+
+                if is_demo_mode():
+                    response_text = "⚠️ **DEMO DATA - not real**\n\n" + response_text
 
                 message_placeholder.markdown(response_text)
                 st.session_state.messages.append({
@@ -816,13 +839,17 @@ if user_prompt:
                     query_error = None
                     result_df = None
 
-                    try:
-                        result_df = execute_marts_query(sanitized_sql)
-                    except Exception as db_err:
-                        query_error = str(db_err)
+                    is_mock_llm = isinstance(llm, MockLLMAdapter)
+                    if is_mock_llm and is_database_live():
+                        query_error = "Mock LLM + live DB is impossible: mock adapter queries are strictly prohibited from running against a live warehouse."
+                    else:
+                        try:
+                            result_df = execute_marts_query(sanitized_sql, is_mock_llm=is_mock_llm)
+                        except Exception as db_err:
+                            query_error = str(db_err)
 
                     # If database execution failed -> Trigger 1-turn retry by sending database error back to LLM
-                    if query_error:
+                    if query_error and not (is_mock_llm and is_database_live()):
                         with st.spinner("🔄 Database returned an error. Requesting LLM to correct SQL..."):
                             try:
                                 retry_sql_raw = llm.generate_sql(
@@ -832,7 +859,7 @@ if user_prompt:
                                 )
                                 is_valid_retry, sanitized_sql_retry, err_retry = validate_and_sanitize_sql(retry_sql_raw)
                                 if is_valid_retry:
-                                    result_df = execute_marts_query(sanitized_sql_retry)
+                                    result_df = execute_marts_query(sanitized_sql_retry, is_mock_llm=is_mock_llm)
                                     sanitized_sql = sanitized_sql_retry
                                     query_error = None
                             except Exception as db_err_retry:
