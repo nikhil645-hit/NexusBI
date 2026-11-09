@@ -1,0 +1,12 @@
+# ==============================================================================
+# requirements.txt - Runtime dependencies for NexusBI
+# Python 3.11+
+# ==============================================================================
+streamlit>=1.37.0
+sqlglot>=25.5.0
+pandas>=2.2.0
+psycopg2-binary>=2.9.9
+python-dotenv>=1.0.0
+requests>=2.31.0
+pyyaml>=6.0.1
+dbt-postgres>=1.8.0

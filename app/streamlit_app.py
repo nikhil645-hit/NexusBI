@@ -62,13 +62,13 @@ except ModuleNotFoundError:
 # Page Configuration & Styling
 # ------------------------------------------------------------------------------
 st.set_page_config(
-    page_title="NexusBI | Autonomous Conversational Analytics",
+    page_title="NexusBI | Conversational BI & Analytics",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# Custom styling for clean enterprise demo
+# Custom styling for clean interface
 st.markdown(
     """
     <style>
@@ -289,7 +289,7 @@ with st.sidebar:
 col_hdr_left, col_hdr_right = st.columns([7, 3])
 
 with col_hdr_left:
-    st.markdown("<div class='main-header'>⚡ NexusBI: Autonomous Conversational Intelligence</div>", unsafe_allow_html=True)
+    st.markdown("<div class='main-header'>⚡ NexusBI: Conversational Business Intelligence</div>", unsafe_allow_html=True)
     st.markdown(
         "<div class='sub-header'>"
         "Ask analytical questions or request live dashboards in natural language. Powered by LLM Text-to-SQL, "

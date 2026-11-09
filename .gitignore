@@ -8,13 +8,14 @@
 .env.*
 !.env.example
 *.env
-*.env.example
 source/.env
 warehouse/.env
 airflow/.env
 !warehouse/.env.example
 !airflow/.env.example
 secrets/
+secrets.toml
+.streamlit/secrets.toml
 *.pem
 *.key
 *.pfx

@@ -1,11 +1,11 @@
-# ⚡ NexusBI: Autonomous Cloud Data Pipeline & Conversational Intelligence Platform
+# ⚡ NexusBI: Cloud Data Pipeline & Conversational Intelligence Platform
 
 [![Local Setup Guide](https://img.shields.io/badge/Local%20Setup-100%25%20Free%20(Zero%20AWS)-brightgreen.svg)](docs/LOCAL_SETUP_GUIDE.md)
 [![Cloud Setup Guide](https://img.shields.io/badge/Cloud%20Setup-AWS%20RDS%20(Sydney)-orange.svg)](docs/COMPLETE_SETUP_GUIDE.md)
 [![Architecture](https://img.shields.io/badge/Architecture-ELT%20%2B%20dbt%20%2B%20Airflow%20%2B%20Streamlit-blue.svg)](docs/architecture.md)
 [![Security Guardrail](https://img.shields.io/badge/Security-sqlglot%20AST%20Validator-green.svg)](app/sql_validator.py)
 
-**NexusBI** is an enterprise-grade, cloud-native Autonomous Conversational BI and Modern Data Engineering Platform built on the Brazilian E-Commerce (Olist) public dataset (~100,000 transactions).
+**NexusBI** is a conversational business intelligence and modern data engineering platform built on the Brazilian E-Commerce (Olist) public dataset (~100,000 transactions).
 
 It extracts transactional records from an OLTP database, loads them into an **AWS RDS PostgreSQL (ap-southeast-2 Sydney)** cloud data warehouse using **Airbyte OSS**, models dimensional star-schema analytics marts with **dbt Core**, validates data integrity through **41 automated dbt schema tests**, orchestrates pipelines with **Apache Airflow**, and serves an interactive conversational analytics interface powered by **Cloud LLM (Groq / Gemini)** with a deterministic **sqlglot AST security guardrail** and on-demand dynamic dashboard generation.
 
