@@ -3,7 +3,7 @@
 # Simple, reproducible workflow targets for development, testing, and CI
 # ==============================================================================
 
-.PHONY: help test lint dbt-test dbt-run dbt-docs benchmark benchmark-mock app clean
+.PHONY: help test lint dbt-test dbt-run dbt-docs benchmark benchmark-mock app verify-migration clean
 
 help: ## Show this help message
 	@echo "========================================================================"
@@ -35,6 +35,9 @@ benchmark-mock: ## Run Text-to-SQL benchmark in mock mode (no API key needed)
 
 app: ## Launch Streamlit Conversational BI interface
 	streamlit run app/streamlit_app.py
+
+verify-migration: ## Verify Neon vs AWS RDS data mart equivalence before teardown
+	python scripts/verify_migration.py --report docs/MIGRATION_VERIFICATION.md
 
 clean: ## Clean up temporary Python cache and dbt artifacts
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true

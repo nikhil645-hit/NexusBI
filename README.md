@@ -116,6 +116,28 @@ GROQ_MODEL=openai/gpt-oss-120b
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for step-by-step Neon, Streamlit Cloud, and safe AWS RDS teardown instructions.
 
+### 🔄 Migration Verification Before RDS Decommissioning
+
+Before decommissioning the AWS RDS instance, run the read-only migration verification script to verify that the 4 analytical marts in Neon match AWS RDS across schema, counts, numeric checksums, date bounds, and MD5 table fingerprints:
+
+```bash
+# Run full read-only equivalence check and output report
+python scripts/verify_migration.py --report docs/MIGRATION_VERIFICATION.md
+# Or via Makefile:
+make verify-migration
+```
+
+This verification:
+- Connects in strict read-only mode (`SET default_transaction_read_only = on`) with `sslmode=require` and a 30s timeout.
+- Compares row counts across all 4 marts (614, 32,735, 94,989, 23 rows).
+- Verifies column ordinal positions and PostgreSQL data type compatibility (`varchar`/`text`, `numeric`/`double precision`).
+- Validates numeric metric sums and null counts.
+- Computes whole-table and 20-tile chunked MD5 content fingerprints across all 128,361 rows.
+- Checks cell-by-cell parity across a deterministic seeded sample of 50 rows per table.
+- Audits the Neon `app_readonly` user permissions (confirming `SELECT` is granted and all write/alter/drop/catalog access is denied).
+
+See the full verification audit in [docs/MIGRATION_VERIFICATION.md](docs/MIGRATION_VERIFICATION.md).
+
 ---
 
 ## 🛡️ Security Invariants & AST Guardrail
@@ -230,6 +252,7 @@ make benchmark       # Run live Text-to-SQL benchmark against cloud LLM
 make dbt-test        # Run all 45 dbt data quality assertions
 make dbt-docs        # Compile standalone dbt docs bundle
 make app             # Launch Streamlit web interface locally
+make verify-migration# Run read-only Neon vs RDS equivalence verification
 ```
 
 ---
@@ -240,6 +263,7 @@ make app             # Launch Streamlit web interface locally
 - [Architecture Decision Records (ADRs)](docs/DECISIONS.md)
 - [Security Threat Model & AST Defense](docs/SECURITY.md)
 - [Deployment, Neon & AWS Teardown Guide](docs/DEPLOYMENT.md)
+- [Migration Equivalence Verification Report](docs/MIGRATION_VERIFICATION.md)
 - [Resume Bullets & Viva Defense Q&A](docs/RESUME_BULLETS.md)
 - [Text-to-SQL Benchmark Report](benchmarks/results/REPORT.md)
 
