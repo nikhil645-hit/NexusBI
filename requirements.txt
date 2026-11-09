@@ -1,15 +1,14 @@
 # ==============================================================================
 # requirements.txt - Runtime dependencies for NexusBI
-# Python 3.11+
+# Python 3.12+ (Prebuilt binary wheels available for Python 3.12 and 3.13)
 # ==============================================================================
-streamlit>=1.37.0
+streamlit>=1.38.0
+pandas>=2.2.3
+psycopg2-binary>=2.9.10
 sqlglot>=25.5.0
-pandas>=2.2.0
-psycopg2-binary>=2.9.9
-python-dotenv>=1.0.0
-requests>=2.31.0
-pyyaml>=6.0.1
+requests>=2.32.0
+pyyaml>=6.0.2
+python-dotenv>=1.0.1
 dbt-postgres>=1.8.0
-sqlalchemy==2.1.8
-pyarrow==26.0.0
-
+sqlalchemy>=2.0.30
+pyarrow>=17.0.0
