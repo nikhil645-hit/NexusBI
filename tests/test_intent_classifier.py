@@ -103,6 +103,25 @@ LEGIT_QUESTIONS_WITH_RISKY_SUBSTRINGS = [
     "tracking delivery SLA compliance",
 ]
 
+# 15 short, casual, real-world data queries that must always route to DATA_QUERY
+CASUAL_REAL_WORLD_QUESTIONS = [
+    "which state buys the most?",
+    "sales last month",
+    "any late deliveries?",
+    "best selling category",
+    "show me revenue",
+    "how's delivery doing",
+    "top customers",
+    "AOV trend",
+    "what's the most expensive category",
+    "how many orders yesterday",
+    "customer count in SP",
+    "late orders percentage",
+    "average freight value",
+    "top 10 products",
+    "monthly sales",
+]
+
 
 @pytest.fixture(scope="module")
 def mock_adapter():
@@ -137,6 +156,20 @@ def test_mock_adapter_no_false_positives(mock_adapter, question):
     """
     intent = mock_adapter.classify_intent(question)
     assert intent != "OUT_OF_SCOPE", f"False positive OUT_OF_SCOPE in mock adapter for '{question}'"
+
+
+@pytest.mark.parametrize("question", CASUAL_REAL_WORLD_QUESTIONS)
+def test_casual_questions_precheck_not_rejected(question):
+    """Verifies that casual questions are not falsely prechecked as OUT_OF_SCOPE."""
+    precheck = precheck_intent(question)
+    assert precheck != "OUT_OF_SCOPE", f"Casual question '{question}' was prechecked as OUT_OF_SCOPE"
+
+
+@pytest.mark.parametrize("question", CASUAL_REAL_WORLD_QUESTIONS)
+def test_casual_questions_classify_as_data_query(mock_adapter, question):
+    """Verifies that short, casual real-world data questions default to DATA_QUERY."""
+    intent = mock_adapter.classify_intent(question)
+    assert intent == "DATA_QUERY", f"Casual question '{question}' classified as '{intent}', expected 'DATA_QUERY'"
 
 
 def test_out_of_scope_precheck_cheap():

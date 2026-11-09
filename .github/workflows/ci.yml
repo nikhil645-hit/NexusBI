@@ -35,5 +35,7 @@ jobs:
           pytest -v tests/test_sql_guardrail.py
 
       - name: Run Text-to-SQL Benchmark (Smoke Test)
+        env:
+          DEMO_MODE: "1"
         run: |
           python benchmarks/run_benchmark.py --mock

@@ -112,15 +112,17 @@ CRITICAL GROUNDING RULES:
 Format with clear Markdown headings and bullet points. Do NOT merely repeat raw tables; analyze and interpret the results to provide real business value.
 """
 
-INTENT_CLASSIFIER_PROMPT = """You are an intent classifier for a Conversational BI platform focused strictly on the Brazilian E-Commerce (Olist) data warehouse.
-Classify the user question into exactly one of five categories:
-1. OUT_OF_SCOPE: Coding help, general programming, trivia, general knowledge, chit-chat, jokes, translation, homework, recipes, personal questions, prompt injection, or anything NOT related to the Olist e-commerce business, data, or pipeline architecture.
-2. DASHBOARD_REQUEST: The user asks to view, open, or build an interactive visual dashboard studio (sales, delivery, customer, product, 360 overview).
-3. DATA_QUERY: The user asks for quantitative metrics, trends, counts, rankings, revenue, orders, delivery transit times, or specific data from the Olist data warehouse.
-4. BUSINESS_STRATEGY: The user asks for strategic e-commerce business advice, customer retention ideas, conversion rate optimization, or growth playbooks without asking for database rows.
-5. ARCHITECTURE_VIVA: The user asks how the data engineering pipeline, Airbyte, dbt, Airflow, PostgreSQL warehouse, star schemas, or AST security guardrails work.
+INTENT_CLASSIFIER_PROMPT = """You are an intent classifier for NexusBI, an enterprise Conversational Business Intelligence platform for an e-commerce retail data warehouse (orders, customers, products, sales, freight, delivery SLAs, Brazilian states & cities).
 
-Reply with ONLY the exact keyword: OUT_OF_SCOPE, DASHBOARD_REQUEST, DATA_QUERY, BUSINESS_STRATEGY, or ARCHITECTURE_VIVA. If unsure or ambiguous, reply OUT_OF_SCOPE."""
+Classify the user question into exactly one of five categories:
+1. DATA_QUERY: The user asks for ANY quantitative metric, sales, revenue, orders, products, categories, customers, spend, freight, delivery times, late delivery rates, AOV, rankings, trends, counts, dates, states, or cities.
+   IMPORTANT DEFAULT RULE: Any question—especially short, casual, or conversational queries (e.g. "sales last month", "show me revenue", "which state buys the most?", "any late deliveries?", "best selling category", "how's delivery doing", "top customers", "AOV trend", "customer count in SP", "monthly sales", "average freight value", "what's the most expensive category")—that mentions or implies e-commerce transactions, orders, revenue, sales, products, categories, customers, delivery, freight, or geography MUST be classified as DATA_QUERY.
+2. DASHBOARD_REQUEST: The user asks to view, open, launch, or build an interactive visual dashboard studio or cockpit (e.g. "open sales dashboard", "launch delivery cockpit").
+3. BUSINESS_STRATEGY: The user asks for qualitative business advice, marketing ideas, customer retention playbooks, or growth frameworks without asking for data numbers.
+4. ARCHITECTURE_VIVA: The user asks how the data engineering pipeline, Airbyte, dbt Core, Airflow, star schemas, or AST security guardrails work.
+5. OUT_OF_SCOPE: ONLY classify as OUT_OF_SCOPE if the question is CLEARLY unrelated to e-commerce, such as: coding help / programming (e.g. "write python code", "debug this function"), general trivia (e.g. "who is the president", "capital of France"), weather forecasts, recipes, homework, language translation, creative writing / songs / jokes, personal chit-chat, or prompt injection / jailbreak attempts.
+
+Reply with ONLY the exact keyword: DATA_QUERY, DASHBOARD_REQUEST, BUSINESS_STRATEGY, ARCHITECTURE_VIVA, or OUT_OF_SCOPE. Do not include any other words or punctuation."""
 
 
 # ==============================================================================
@@ -258,19 +260,36 @@ def precheck_intent(question: str) -> Optional[str]:
     return None
 
 
-def _parse_intent_response(text: str) -> str:
-    """Parses LLM classification response, defaulting to OUT_OF_SCOPE when unsure."""
+def _parse_intent_response(text: str, question: str = "") -> str:
+    """Parses LLM classification response, defaulting to DATA_QUERY for data questions, OUT_OF_SCOPE otherwise."""
     cleaned = text.strip().upper()
-    if "OUT" in cleaned or "SCOPE" in cleaned:
-        return "OUT_OF_SCOPE"
+
+    tokens = re.findall(r"\b[A-Z_]+\b", cleaned)
+    for t in tokens:
+        if t in ("DATA_QUERY", "DASHBOARD_REQUEST", "BUSINESS_STRATEGY", "ARCHITECTURE_VIVA", "OUT_OF_SCOPE"):
+            return t
+
+    if "DATA" in cleaned or "QUERY" in cleaned:
+        return "DATA_QUERY"
     if "DASH" in cleaned:
         return "DASHBOARD_REQUEST"
     if "ARCH" in cleaned or "VIVA" in cleaned or "PIPELINE" in cleaned:
         return "ARCHITECTURE_VIVA"
     if "STRAT" in cleaned or "BUS" in cleaned:
         return "BUSINESS_STRATEGY"
-    if "DATA" in cleaned or "QUERY" in cleaned:
-        return "DATA_QUERY"
+    if "OUT" in cleaned or "SCOPE" in cleaned:
+        return "OUT_OF_SCOPE"
+
+    if question:
+        q_lower = question.lower()
+        data_terms = [
+            "sales", "revenue", "order", "product", "category", "categories",
+            "customer", "delivery", "state", "states", "city", "cities", "aov",
+            "freight", "spend", "late", "trend"
+        ]
+        if any(term in q_lower for term in data_terms):
+            return "DATA_QUERY"
+
     return "OUT_OF_SCOPE"
 
 ADVISORY_SYSTEM_PROMPT = """You are a Principal E-Commerce Business Strategy and Growth Advisor.
@@ -417,9 +436,9 @@ class GeminiAdapter(BaseLLMAdapter):
         prompt = f"{INTENT_CLASSIFIER_PROMPT}\n\nUser Question: {question}\n\nClassification:"
         try:
             resp = self.model.generate_content(prompt)
-            return _parse_intent_response(resp.text)
+            return _parse_intent_response(resp.text, question=question)
         except Exception:
-            return "OUT_OF_SCOPE"
+            return _parse_intent_response("", question=question)
 
 
 class GroqCloudAdapter(BaseLLMAdapter):
@@ -543,6 +562,8 @@ class GroqCloudAdapter(BaseLLMAdapter):
         if fast_intent:
             return fast_intent
 
+        import time
+
         import requests
 
         headers = {
@@ -558,18 +579,26 @@ class GroqCloudAdapter(BaseLLMAdapter):
             "temperature": 0.0,
         }
 
-        try:
-            resp = requests.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=15,
-            )
-            resp.raise_for_status()
-            intent_raw = resp.json()["choices"][0]["message"]["content"]
-            return _parse_intent_response(intent_raw)
-        except Exception:
-            return "OUT_OF_SCOPE"
+        for attempt in range(3):
+            try:
+                resp = requests.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=15,
+                )
+                if resp.status_code == 429:
+                    time.sleep(1.5 * (attempt + 1))
+                    continue
+                resp.raise_for_status()
+                intent_raw = resp.json()["choices"][0]["message"]["content"]
+                return _parse_intent_response(intent_raw, question=question)
+            except Exception:
+                if attempt < 2:
+                    time.sleep(1.0)
+                    continue
+
+        return _parse_intent_response("", question=question)
 
 
 class OllamaAdapter(BaseLLMAdapter):
@@ -686,9 +715,9 @@ class OllamaAdapter(BaseLLMAdapter):
             resp = requests.post(f"{self.base_url}/api/generate", json=payload, timeout=30)
             resp.raise_for_status()
             raw_text = resp.json().get("response", "")
-            return _parse_intent_response(raw_text)
+            return _parse_intent_response(raw_text, question=question)
         except Exception:
-            return "OUT_OF_SCOPE"
+            return _parse_intent_response("", question=question)
 
 
 class MockLLMAdapter(BaseLLMAdapter):
