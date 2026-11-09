@@ -489,7 +489,7 @@ def render_intelligent_chart(df: pd.DataFrame):
 # ------------------------------------------------------------------------------
 # Render Past Chat Messages
 # ------------------------------------------------------------------------------
-for msg in st.session_state.messages:
+for msg_idx, msg in enumerate(st.session_state.messages):
     with st.chat_message(msg["role"]):
         if msg["role"] == "assistant" and is_demo_mode():
             st.caption("⚠️ *DEMO DATA - not real*")
@@ -497,20 +497,20 @@ for msg in st.session_state.messages:
         if msg.get("out_of_scope_buttons"):
             col1, col2, col3 = st.columns(3)
             with col1:
-                if st.button("📊 Top 5 product categories by revenue", key=f"oos_hist_1_{abs(hash(msg['content']))}", use_container_width=True):
+                if st.button("📊 Top 5 product categories by revenue", key=f"oos_hist_1_{msg_idx}", use_container_width=True):
                     st.session_state.selected_sample_question = "What are the top 5 product categories by total revenue?"
                     st.rerun()
             with col2:
-                if st.button("📈 Monthly revenue trend", key=f"oos_hist_2_{abs(hash(msg['content']))}", use_container_width=True):
+                if st.button("📈 Monthly revenue trend", key=f"oos_hist_2_{msg_idx}", use_container_width=True):
                     st.session_state.selected_sample_question = "Show the daily sales trend and average order value for the last 30 days."
                     st.rerun()
             with col3:
-                if st.button("🚚 Late delivery rate by month", key=f"oos_hist_3_{abs(hash(msg['content']))}", use_container_width=True):
+                if st.button("🚚 Late delivery rate by month", key=f"oos_hist_3_{msg_idx}", use_container_width=True):
                     st.session_state.selected_sample_question = "What percentage of orders were delivered late each month?"
                     st.rerun()
         if "dashboard_type" in msg:
             dtype_label = msg["dashboard_type"].title()
-            if st.button(f"🚀 Open Full-Screen {dtype_label} Dashboard", key=f"btn_hist_{msg['dashboard_type']}_{abs(hash(msg['content']))}"):
+            if st.button(f"🚀 Open Full-Screen {dtype_label} Dashboard", key=f"btn_hist_{msg['dashboard_type']}_{msg_idx}"):
                 st.query_params["dashboard"] = msg["dashboard_type"]
                 st.rerun()
         if "sql" in msg:
@@ -646,16 +646,17 @@ if user_prompt:
             message_placeholder.markdown(out_of_scope_msg)
 
             col1, col2, col3 = st.columns(3)
+            oos_suffix = len(st.session_state.messages)
             with col1:
-                if st.button("📊 Top 5 product categories by revenue", key="btn_oos_1", use_container_width=True):
+                if st.button("📊 Top 5 product categories by revenue", key=f"btn_oos_1_{oos_suffix}", use_container_width=True):
                     st.session_state.selected_sample_question = "What are the top 5 product categories by total revenue?"
                     st.rerun()
             with col2:
-                if st.button("📈 Monthly revenue trend", key="btn_oos_2", use_container_width=True):
+                if st.button("📈 Monthly revenue trend", key=f"btn_oos_2_{oos_suffix}", use_container_width=True):
                     st.session_state.selected_sample_question = "Show the daily sales trend and average order value for the last 30 days."
                     st.rerun()
             with col3:
-                if st.button("🚚 Late delivery rate by month", key="btn_oos_3", use_container_width=True):
+                if st.button("🚚 Late delivery rate by month", key=f"btn_oos_3_{oos_suffix}", use_container_width=True):
                     st.session_state.selected_sample_question = "What percentage of orders were delivered late each month?"
                     st.rerun()
 
@@ -782,7 +783,11 @@ if user_prompt:
                     t_start = time.time()
                     raw_sql = llm.generate_sql(question=user_prompt, schema_info=schema_text)
             except Exception as e:
-                err_msg = f"Unable to reach the LLM provider ({type(e).__name__}). Please verify network connectivity or API key configuration."
+                err_detail = str(e)
+                if hasattr(e, "response") and getattr(e.response, "status_code", None) == 429:
+                    err_msg = "LLM rate limit reached (HTTP 429: Too Many Requests). Please wait a few seconds and retry."
+                else:
+                    err_msg = f"Unable to reach the LLM provider ({type(e).__name__}): {err_detail}"
                 st.error(f"❌ **AI Service Unavailable**: {err_msg}")
                 latency_ms = (time.time() - t_pipeline_start) * 1000
                 log_query_event(

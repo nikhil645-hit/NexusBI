@@ -451,41 +451,73 @@ class GroqCloudAdapter(BaseLLMAdapter):
         self.api_key = api_key
         self.model = model
 
+    def _post_completion(
+        self,
+        messages: list,
+        temperature: float = 0.0,
+        timeout: int = 30,
+    ) -> str:
+        import time
+
+        import requests
+
+        models_to_try = [self.model]
+        for fallback in ["openai/gpt-oss-20b", "qwen/qwen3.8-27b"]:
+            if fallback not in models_to_try:
+                models_to_try.append(fallback)
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        last_error = None
+        for m in models_to_try:
+            for attempt in range(3):
+                payload = {
+                    "model": m,
+                    "messages": messages,
+                    "temperature": temperature,
+                }
+                try:
+                    resp = requests.post(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        headers=headers,
+                        json=payload,
+                        timeout=timeout,
+                    )
+                    if resp.status_code == 429:
+                        time.sleep(1.5 * (attempt + 1))
+                        continue
+                    resp.raise_for_status()
+                    data = resp.json()
+                    return data["choices"][0]["message"]["content"]
+                except Exception as e:
+                    last_error = e
+                    if attempt < 2:
+                        time.sleep(1.0)
+                        continue
+
+        if last_error:
+            raise last_error
+        raise RuntimeError("No response from Groq API.")
+
     def generate_sql(
         self,
         question: str,
         schema_info: str,
         error_context: Optional[str] = None,
     ) -> str:
-        import requests
-
         system_instruction = build_system_prompt(schema_info)
         user_prompt = f"User Question: {question}\n\nGenerate ONLY executable SQL inside ```sql ... ``` code block:"
         if error_context:
             user_prompt += f"\n\nPrevious attempt failed with error:\n{error_context}\nPlease correct the SQL."
 
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_instruction},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": 0.0,
-        }
-
-        resp = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=30,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        raw_text = data["choices"][0]["message"]["content"]
+        messages = [
+            {"role": "system", "content": system_instruction},
+            {"role": "user", "content": user_prompt},
+        ]
+        raw_text = self._post_completion(messages, temperature=0.0, timeout=30)
         return _extract_sql_from_text(raw_text)
 
     def generate_insights(
@@ -494,111 +526,44 @@ class GroqCloudAdapter(BaseLLMAdapter):
         sql_query: str,
         data_summary: str,
     ) -> str:
-        import requests
-
         user_content = (
             f"User Question: {question}\n\n"
             f"Executed SQL Query:\n```sql\n{sql_query}\n```\n\n"
             f"Retrieved Data Summary:\n{data_summary}\n\n"
             "Provide executive analysis, key findings, and actionable recommendations answering the user's question."
         )
-
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": INSIGHTS_SYSTEM_PROMPT},
-                {"role": "user", "content": user_content},
-            ],
-            "temperature": 0.3,
-        }
-
-        resp = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=30,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data["choices"][0]["message"]["content"].strip()
+        messages = [
+            {"role": "system", "content": INSIGHTS_SYSTEM_PROMPT},
+            {"role": "user", "content": user_content},
+        ]
+        return self._post_completion(messages, temperature=0.3, timeout=30).strip()
 
     def generate_advisory_or_architecture(
         self,
         question: str,
         system_type: str = "advisory",
     ) -> str:
-        import requests
-
         sys_prompt = ARCHITECTURE_SYSTEM_PROMPT if system_type == "architecture" else ADVISORY_SYSTEM_PROMPT
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": sys_prompt},
-                {"role": "user", "content": question},
-            ],
-            "temperature": 0.3,
-        }
-
-        resp = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=30,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data["choices"][0]["message"]["content"].strip()
+        messages = [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": question},
+        ]
+        return self._post_completion(messages, temperature=0.3, timeout=30).strip()
 
     def classify_intent(self, question: str) -> str:
         fast_intent = precheck_intent(question)
         if fast_intent:
             return fast_intent
 
-        import time
-
-        import requests
-
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": INTENT_CLASSIFIER_PROMPT},
-                {"role": "user", "content": question},
-            ],
-            "temperature": 0.0,
-        }
-
-        for attempt in range(3):
-            try:
-                resp = requests.post(
-                    "https://api.groq.com/openai/v1/chat/completions",
-                    headers=headers,
-                    json=payload,
-                    timeout=15,
-                )
-                if resp.status_code == 429:
-                    time.sleep(1.5 * (attempt + 1))
-                    continue
-                resp.raise_for_status()
-                intent_raw = resp.json()["choices"][0]["message"]["content"]
-                return _parse_intent_response(intent_raw, question=question)
-            except Exception:
-                if attempt < 2:
-                    time.sleep(1.0)
-                    continue
-
-        return _parse_intent_response("", question=question)
+        messages = [
+            {"role": "system", "content": INTENT_CLASSIFIER_PROMPT},
+            {"role": "user", "content": question},
+        ]
+        try:
+            intent_raw = self._post_completion(messages, temperature=0.0, timeout=15)
+            return _parse_intent_response(intent_raw, question=question)
+        except Exception:
+            return _parse_intent_response("", question=question)
 
 
 class OllamaAdapter(BaseLLMAdapter):
