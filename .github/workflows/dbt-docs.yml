@@ -1,0 +1,70 @@
+name: Deploy dbt Documentation to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "dbt/**"
+      - "scripts/build_dbt_docs.py"
+      - ".github/workflows/dbt-docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dbt dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install dbt-postgres pyyaml
+
+      - name: Build Standalone dbt Docs
+        env:
+          DB_HOST: ${{ secrets.DB_HOST || 'localhost' }}
+          DB_PORT: ${{ secrets.DB_PORT || '5432' }}
+          DB_NAME: ${{ secrets.DB_NAME || 'warehouse' }}
+          DB_USER: ${{ secrets.DBT_USER || 'dbt_user' }}
+          DB_PASSWORD: ${{ secrets.DBT_PASSWORD || 'dbt_user_password' }}
+          DB_SSLMODE: ${{ secrets.DB_SSLMODE || 'prefer' }}
+          DBT_TARGET: dev
+        run: |
+          python scripts/build_dbt_docs.py || true
+          # Fallback: if dbt warehouse is unreachable during CI, generate static placeholder index
+          if [ ! -f docs/dbt-docs/index.html ]; then
+            mkdir -p docs/dbt-docs
+            echo "<!DOCTYPE html><html><head><title>NexusBI dbt Docs</title></head><body><h1>NexusBI dbt Documentation</h1><p>Connect your warehouse secrets in GitHub Actions to auto-compile live catalog.</p></body></html>" > docs/dbt-docs/index.html
+          fi
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "docs/dbt-docs"
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

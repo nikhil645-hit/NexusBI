@@ -10,11 +10,11 @@
 # ==============================================================================
 
 import os
-from pathlib import Path
-from typing import Optional, Dict, Any, List
-from dotenv import load_dotenv
 import warnings
+from pathlib import Path
+
 import pandas as pd
+from dotenv import load_dotenv
 
 # Suppress DBAPI2 user warning for pandas read_sql_query with psycopg2
 warnings.filterwarnings("ignore", category=UserWarning, module="pandas")

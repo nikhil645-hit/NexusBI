@@ -14,17 +14,17 @@
 #   - Automatically clamps LIMIT to <= 1000
 # ==============================================================================
 
-import pytest
 import sys
 from pathlib import Path
+
+import pytest
 
 # Ensure app is in python path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from app.sql_validator import validate_and_sanitize_sql, ALLOWED_MART_TABLES
-
+from app.sql_validator import ALLOWED_MART_TABLES, validate_and_sanitize_sql
 
 SHOULD_PASS = [
     (
@@ -344,7 +344,7 @@ def test_summary_report(capsys):
     print(f" Total Safe Query Tests (SHOULD_PASS)  : {len(SHOULD_PASS)}")
     print(f" Total Attack Vector Tests (SHOULD_BLOCK): {len(SHOULD_BLOCK)}")
     print(f" Combined Test Cases                   : {len(SHOULD_PASS) + len(SHOULD_BLOCK)}")
-    print(f" Target Schema                         : marts")
+    print(" Target Schema                         : marts")
     print(f" Whitelisted Tables                    : {', '.join(sorted(ALLOWED_MART_TABLES))}")
     print("=" * 70)
 

@@ -3,7 +3,8 @@
 # ==============================================================================
 
 import pytest
-from app.sql_validator import validate_and_sanitize_sql, MAX_ALLOWED_LIMIT
+
+from app.sql_validator import MAX_ALLOWED_LIMIT, validate_and_sanitize_sql
 
 
 class TestSQLValidator:

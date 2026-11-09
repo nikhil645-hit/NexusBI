@@ -6,8 +6,6 @@
 # on GitHub Pages and offline via file:// (zero CORS issues).
 # ==============================================================================
 
-import json
-import os
 import re
 import shutil
 import subprocess

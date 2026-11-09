@@ -22,10 +22,10 @@ os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
 import time
 from pathlib import Path
-from typing import Optional
-from dotenv import load_dotenv
-import streamlit as st
+
 import pandas as pd
+import streamlit as st
+from dotenv import load_dotenv
 
 # Ensure project root and app directory are in sys.path when executed via streamlit
 project_root = Path(__file__).resolve().parent.parent
@@ -40,25 +40,25 @@ if dotenv_file.exists():
     load_dotenv(dotenv_path=dotenv_file, override=True)
 
 try:
-    from app.sql_validator import validate_and_sanitize_sql
-    from app.db_helper import (
-        get_marts_schema_text,
-        execute_marts_query,
-        is_warehouse_configured,
-    )
-    from app.llm_helper import get_llm_adapter, BaseLLMAdapter, detect_dashboard_type
-    from app.dashboard_renderer import render_dashboard_by_type
     from app.audit_logger import log_query_event
-except ModuleNotFoundError:
-    from sql_validator import validate_and_sanitize_sql
-    from db_helper import (
-        get_marts_schema_text,
+    from app.dashboard_renderer import render_dashboard_by_type
+    from app.db_helper import (
         execute_marts_query,
+        get_marts_schema_text,
         is_warehouse_configured,
     )
-    from llm_helper import get_llm_adapter, BaseLLMAdapter, detect_dashboard_type
-    from dashboard_renderer import render_dashboard_by_type
+    from app.llm_helper import detect_dashboard_type, get_llm_adapter
+    from app.sql_validator import validate_and_sanitize_sql
+except ModuleNotFoundError:
     from audit_logger import log_query_event
+    from dashboard_renderer import render_dashboard_by_type
+    from db_helper import (
+        execute_marts_query,
+        get_marts_schema_text,
+        is_warehouse_configured,
+    )
+    from llm_helper import detect_dashboard_type, get_llm_adapter
+    from sql_validator import validate_and_sanitize_sql
 
 # ------------------------------------------------------------------------------
 # Page Configuration & Styling

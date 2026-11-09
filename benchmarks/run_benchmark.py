@@ -12,12 +12,11 @@
 
 import argparse
 import json
-import os
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -28,10 +27,9 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from app.db_helper import execute_marts_query, get_marts_schema_text, is_warehouse_configured
-from app.llm_helper import get_llm_adapter, BaseLLMAdapter
+from app.db_helper import execute_marts_query, get_marts_schema_text
+from app.llm_helper import get_llm_adapter
 from app.sql_validator import validate_and_sanitize_sql
-
 
 BENCHMARK_DIR = ROOT_DIR / "benchmarks"
 QUESTIONS_FILE = BENCHMARK_DIR / "questions.yaml"

@@ -1,0 +1,28 @@
+name: Keepalive Cloud Service Ping
+
+# Free cloud database and app hosts (such as Neon and Streamlit Cloud) often spin down
+# or sleep after periods of inactivity. This workflow pings your public URL once a week
+# to ensure demo links remain warm for recruiters and professors.
+
+on:
+  schedule:
+    - cron: "0 8 * * 1" # Runs every Monday at 08:00 UTC
+  workflow_dispatch:
+
+jobs:
+  ping:
+    name: Ping Deployment Endpoints
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Ping Streamlit Cloud & Cloud Database
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+        run: |
+          if [ -n "$APP_URL" ]; then
+            echo "Pinging production application URL: $APP_URL"
+            curl -s -o /dev/null -w "HTTP Status: %{http_code}\n" -L "$APP_URL" || echo "Ping attempted with response."
+          else
+            echo "[INFO] No APP_URL secret configured in GitHub repository."
+            echo "To keep your Streamlit Cloud demo alive, add an APP_URL secret in Repo Settings -> Secrets and variables -> Actions."
+          fi

@@ -15,6 +15,7 @@ import re
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional
+
 import yaml
 
 _SEMANTIC_LAYER_PATH = Path(__file__).resolve().parent / "semantic_layer.yaml"
@@ -175,7 +176,7 @@ class GeminiAdapter(BaseLLMAdapter):
         error_context: Optional[str] = None,
     ) -> str:
         system_instruction = build_system_prompt(schema_info)
-        
+
         prompt = f"User Question: {question}\n\nGenerate the Redshift SQL query:"
         if error_context:
             prompt += (
@@ -224,10 +225,14 @@ class GeminiAdapter(BaseLLMAdapter):
         try:
             resp = self.model.generate_content(prompt)
             text = resp.text.strip().upper()
-            if "DASH" in text: return "DASHBOARD_REQUEST"
-            if "DATA" in text: return "DATA_QUERY"
-            if "ARCH" in text or "VIVA" in text: return "ARCHITECTURE_VIVA"
-            if "STRAT" in text or "BUS" in text: return "BUSINESS_STRATEGY"
+            if "DASH" in text:
+                return "DASHBOARD_REQUEST"
+            if "DATA" in text:
+                return "DATA_QUERY"
+            if "ARCH" in text or "VIVA" in text:
+                return "ARCHITECTURE_VIVA"
+            if "STRAT" in text or "BUS" in text:
+                return "BUSINESS_STRATEGY"
             return "DATA_QUERY"
         except Exception:
             return "DATA_QUERY"
@@ -637,11 +642,6 @@ def get_llm_adapter() -> BaseLLMAdapter:
         model = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
         base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
         return OllamaAdapter(model=model, base_url=base_url)
-    elif provider == "anthropic":
-        api_key = os.getenv("ANTHROPIC_API_KEY", "")
-        if api_key and "your_" not in api_key:
-            import anthropic
-            return AnthropicAdapter(api_key=api_key)
 
     # Fallback to Mock Adapter with a notification
     return MockLLMAdapter()

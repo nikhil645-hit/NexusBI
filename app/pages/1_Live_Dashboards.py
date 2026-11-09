@@ -5,9 +5,9 @@
 # Accessible on AWS at:  http://<AWS_HOST>:8501/Live_Dashboards
 # ==============================================================================
 
-import os
 import sys
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 # Ensure root is on sys.path
@@ -18,12 +18,13 @@ if str(PROJECT_ROOT) not in sys.path:
 load_dotenv()
 
 import streamlit as st
+
 from app.dashboard_renderer import (
-    render_sales_dashboard,
-    render_delivery_dashboard,
-    render_customer_dashboard,
-    render_product_dashboard,
     render_360_overview_dashboard,
+    render_customer_dashboard,
+    render_delivery_dashboard,
+    render_product_dashboard,
+    render_sales_dashboard,
 )
 
 st.set_page_config(

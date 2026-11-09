@@ -20,16 +20,17 @@
 # ==============================================================================
 """
 
+import logging
 import os
 import time
-import logging
 from datetime import datetime, timedelta
+
 import requests
+from airflow.exceptions import AirflowFailException
+from airflow.operators.bash import BashOperator
+from airflow.operators.python import PythonOperator
 
 from airflow import DAG
-from airflow.operators.python import PythonOperator
-from airflow.operators.bash import BashOperator
-from airflow.exceptions import AirflowFailException
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,7 @@ def trigger_and_wait_airbyte_sync(**context):
 
     # Prepare authentication headers
     headers = {"Content-Type": "application/json"}
-    
+
     # Authenticate via OAuth application token if Client ID/Secret are provided
     if client_id and client_secret and "your_" not in client_id:
         logger.info("Authenticating with Airbyte Applications API...")

@@ -8,16 +8,17 @@
 # Works locally (localhost:8501) and on any cloud instance (AWS EC2 / ECS / Streamlit Cloud).
 # ==============================================================================
 
-import streamlit as st
+
 import pandas as pd
-from typing import Optional
+import streamlit as st
+
 from app.db_helper import execute_marts_query
 
 
 def fetch_sales_data() -> pd.DataFrame:
     """Fetches daily sales metrics from marts.mart_daily_sales."""
     sql = """
-    SELECT 
+    SELECT
         sales_date,
         total_orders,
         total_items_sold,
@@ -33,7 +34,7 @@ def fetch_sales_data() -> pd.DataFrame:
 def fetch_delivery_data() -> pd.DataFrame:
     """Fetches monthly logistics and delivery SLA metrics from marts.mart_delivery_performance."""
     sql = """
-    SELECT 
+    SELECT
         year_month,
         total_delivered_orders,
         late_orders_count,
@@ -49,7 +50,7 @@ def fetch_delivery_data() -> pd.DataFrame:
 def fetch_customer_data() -> pd.DataFrame:
     """Fetches buyer and geographic aggregations from marts.mart_customer_summary."""
     sql = """
-    SELECT 
+    SELECT
         customer_unique_id,
         customer_city,
         customer_state,
@@ -66,7 +67,7 @@ def fetch_customer_data() -> pd.DataFrame:
 def fetch_product_data() -> pd.DataFrame:
     """Fetches catalog and category leaderboard from marts.mart_top_products."""
     sql = """
-    SELECT 
+    SELECT
         product_id,
         category_name,
         units_sold,

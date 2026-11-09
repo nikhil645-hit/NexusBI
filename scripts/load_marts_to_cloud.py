@@ -22,9 +22,9 @@ import argparse
 import os
 import sys
 from pathlib import Path
-from typing import Optional
-import psycopg2
+
 import pandas as pd
+import psycopg2
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
@@ -74,7 +74,7 @@ def provision_and_load(
     print(f" Target Database  : {dbname}")
     print(f" Target Admin User: {user}")
     print(f" Target SSL Mode  : {sslmode}")
-    print(f" Readonly Role    : app_readonly")
+    print(" Readonly Role    : app_readonly")
     print(f" Dry Run Mode     : {dry_run}")
     print("=" * 65 + "\n")
 

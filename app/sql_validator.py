@@ -8,7 +8,8 @@
 # ==============================================================================
 
 import re
-from typing import Tuple, Set
+from typing import Set, Tuple
+
 import sqlglot
 from sqlglot import exp
 

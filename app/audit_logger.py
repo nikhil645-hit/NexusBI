@@ -6,10 +6,9 @@
 # ==============================================================================
 
 import json
-import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Any, Dict
+from typing import Any, Dict, Optional
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 LOGS_DIR = ROOT_DIR / "logs"
@@ -59,7 +58,7 @@ def log_query_event(
 
         with open(QUERY_LOG_FILE, "a", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
-    except Exception as e:
+    except Exception:
         # Structured logging failure must never crash user-facing application
         pass
 
