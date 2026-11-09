@@ -108,3 +108,34 @@ class TestSQLValidator:
         assert is_valid is False
         assert "Access to table 'secret_passwords_table' is forbidden" in err
 
+    # --------------------------------------------------------------------------
+    # 6. CTE (Common Table Expression) Isolation Tests
+    # --------------------------------------------------------------------------
+    def test_valid_cte_with_marts(self):
+        sql = """
+        WITH latest_month AS (
+            SELECT DATE_TRUNC('month', sales_date) AS month, SUM(total_revenue) AS rev
+            FROM mart_daily_sales
+            GROUP BY 1
+            ORDER BY 1 DESC
+            LIMIT 1
+        )
+        SELECT * FROM latest_month
+        """
+        is_valid, sanitized_sql, err = validate_and_sanitize_sql(sql)
+        assert is_valid is True
+        assert err == ""
+        assert "marts.mart_daily_sales" in sanitized_sql.lower()
+        assert "latest_month" in sanitized_sql
+
+    def test_reject_unauthorized_table_inside_cte(self):
+        sql = """
+        WITH hacked_cte AS (
+            SELECT * FROM raw.customers
+        )
+        SELECT * FROM hacked_cte
+        """
+        is_valid, _, err = validate_and_sanitize_sql(sql)
+        assert is_valid is False
+        assert "Access to schema 'raw' is forbidden" in err
+

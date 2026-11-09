@@ -10,8 +10,15 @@
 # ==============================================================================
 
 import os
+from pathlib import Path
 from typing import Optional, Dict, Any, List
+from dotenv import load_dotenv
 import pandas as pd
+
+# Load environment variables from .env
+_dotenv_path = Path(__file__).resolve().parent.parent / ".env"
+if _dotenv_path.exists():
+    load_dotenv(dotenv_path=_dotenv_path, override=True)
 
 # Fallback schema metadata if warehouse is offline or during offline demo
 STATIC_MARTS_SCHEMA = """
@@ -90,6 +97,8 @@ def get_connection():
     user = os.getenv("WAREHOUSE_APP_USER") or os.getenv("REDSHIFT_APP_USER", "app_readonly")
     password = os.getenv("WAREHOUSE_APP_PASSWORD") or os.getenv("REDSHIFT_APP_PASSWORD", "")
 
+    sslmode = os.getenv("WAREHOUSE_SSLMODE", "prefer")
+
     try:
         conn = psycopg2.connect(
             host=host,
@@ -97,6 +106,7 @@ def get_connection():
             dbname=db,
             user=user,
             password=password,
+            sslmode=sslmode,
             connect_timeout=15,
             options="-c search_path=marts",
         )

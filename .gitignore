@@ -8,6 +8,7 @@
 .env.*
 !.env.example
 *.env
+*.env.example
 source/.env
 warehouse/.env
 airflow/.env
@@ -39,6 +40,8 @@ __pycache__/
 dbt/olist_dbt/target/
 dbt/olist_dbt/dbt_packages/
 dbt/olist_dbt/logs/
+dbt/olist_dbt/.user.yml
+logs/
 
 # Airflow runtime logs & SQLite/pid files
 airflow/logs/

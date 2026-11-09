@@ -11,25 +11,59 @@
 # ==============================================================================
 
 import os
+import sys
+
+# Crucial Windows fix: limit OpenBLAS / OMP threads before numpy/pandas/streamlit initialize
+# to prevent "OpenBLAS error: Memory allocation still failed" crashes
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
 import time
+from pathlib import Path
 from typing import Optional
+from dotenv import load_dotenv
 import streamlit as st
 import pandas as pd
 
-from app.sql_validator import validate_and_sanitize_sql
-from app.db_helper import (
-    get_marts_schema_text,
-    execute_marts_query,
-    is_warehouse_configured,
-)
-from app.llm_helper import get_llm_adapter, BaseLLMAdapter
+# Ensure project root and app directory are in sys.path when executed via streamlit
+project_root = Path(__file__).resolve().parent.parent
+app_dir = Path(__file__).resolve().parent
+for p in (str(project_root), str(app_dir)):
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+# Load environment variables from .env file
+dotenv_file = project_root / ".env"
+if dotenv_file.exists():
+    load_dotenv(dotenv_path=dotenv_file, override=True)
+
+try:
+    from app.sql_validator import validate_and_sanitize_sql
+    from app.db_helper import (
+        get_marts_schema_text,
+        execute_marts_query,
+        is_warehouse_configured,
+    )
+    from app.llm_helper import get_llm_adapter, BaseLLMAdapter, detect_dashboard_type
+    from app.dashboard_renderer import render_dashboard_by_type
+except ModuleNotFoundError:
+    from sql_validator import validate_and_sanitize_sql
+    from db_helper import (
+        get_marts_schema_text,
+        execute_marts_query,
+        is_warehouse_configured,
+    )
+    from llm_helper import get_llm_adapter, BaseLLMAdapter, detect_dashboard_type
+    from dashboard_renderer import render_dashboard_by_type
 
 # ------------------------------------------------------------------------------
 # Page Configuration & Styling
 # ------------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Olist Conversational BI",
-    page_icon="📊",
+    page_title="NexusBI | Autonomous Conversational Analytics",
+    page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -43,6 +77,52 @@ st.markdown(
     .badge-provider { background-color: #EEF2F6; color: #1E40AF; padding: 4px 10px; border-radius: 6px; font-weight: 600; font-size: 0.85rem; }
     .badge-status-ok { background-color: #DCFCE7; color: #166534; padding: 4px 10px; border-radius: 6px; font-weight: 600; font-size: 0.85rem; }
     .badge-status-mock { background-color: #FEF3C7; color: #92400E; padding: 4px 10px; border-radius: 6px; font-weight: 600; font-size: 0.85rem; }
+
+    /* Right-side floating slideout drawer for System Control */
+    .right-slideout-drawer {
+        position: fixed;
+        top: 85px;
+        right: -320px;
+        width: 360px;
+        background: #ffffff;
+        border: 1px solid #cbd5e1;
+        border-radius: 12px 0 0 12px;
+        box-shadow: -6px 8px 24px rgba(15, 23, 42, 0.16);
+        transition: right 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+        z-index: 999999;
+        font-family: inherit;
+        display: flex;
+    }
+    .right-slideout-drawer:hover, .right-slideout-drawer:focus-within {
+        right: 0px;
+    }
+    .drawer-handle {
+        width: 40px;
+        background: linear-gradient(180deg, #1e293b, #0f172a);
+        color: #f8fafc;
+        writing-mode: vertical-rl;
+        text-orientation: mixed;
+        transform: rotate(180deg);
+        padding: 22px 8px;
+        cursor: pointer;
+        border-radius: 0 10px 10px 0;
+        font-size: 0.82rem;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        letter-spacing: 0.8px;
+        box-shadow: -2px 0 8px rgba(0,0,0,0.12);
+        user-select: none;
+    }
+    .drawer-content {
+        flex: 1;
+        padding: 18px 20px;
+        color: #334155;
+        font-size: 0.88rem;
+        max-height: 82vh;
+        overflow-y: auto;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -60,35 +140,130 @@ if "query_history" not in st.session_state:
 if "selected_sample_question" not in st.session_state:
     st.session_state.selected_sample_question = None
 
+if "saved_chats" not in st.session_state:
+    st.session_state.saved_chats = []
+
+
+# System Metadata Helpers
+provider_name = os.getenv("LLM_PROVIDER", "gemini").upper()
+has_db = is_warehouse_configured()
+wh_host = os.getenv("WAREHOUSE_HOST", "localhost")
+wh_label = "AWS RDS (Sydney)" if "rds.amazonaws.com" in wh_host else ("Connected" if has_db else "Offline / Mock")
+wh_badge_class = "badge-status-ok" if has_db else "badge-status-mock"
+active_model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b") if provider_name == "GROQ" else os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+wh_host_short = wh_host[:32] + "..." if len(wh_host) > 32 else wh_host
+
 
 # ------------------------------------------------------------------------------
-# Sidebar: System Metadata, Data Dictionary & Sample Prompts
+# Right-side Hover Slideout Drawer (System Control Panel)
+# ------------------------------------------------------------------------------
+st.markdown(
+    f"""
+    <div class="right-slideout-drawer">
+        <div class="drawer-handle">⚙️ System Control</div>
+        <div class="drawer-content">
+            <div style="font-weight:700; font-size:1.05rem; margin-bottom:10px; color:#0f172a; border-bottom: 2px solid #e2e8f0; padding-bottom: 6px;">
+                ⚙️ System Control & Infrastructure
+            </div>
+            <div style="margin: 8px 0;">
+                <div style="font-size:0.75rem; color:#64748b; font-weight:700; text-transform:uppercase;">LLM Engine</div>
+                <div style="margin-top:2px;"><strong>Provider:</strong> <span class="badge-provider">{provider_name}</span></div>
+                <div style="font-size:0.78rem; color:#64748b; margin-top:2px;">Model: <code>{active_model}</code></div>
+            </div>
+            <div style="margin: 10px 0;">
+                <div style="font-size:0.75rem; color:#64748b; font-weight:700; text-transform:uppercase;">Data Warehouse</div>
+                <div style="margin-top:2px;"><strong>Status:</strong> <span class="{wh_badge_class}">{wh_label}</span></div>
+                <div style="font-size:0.78rem; color:#64748b; margin-top:2px;">Host: <code>{wh_host_short}</code></div>
+                <div style="font-size:0.78rem; color:#64748b;">Region: <code>ap-southeast-2 (Sydney)</code></div>
+            </div>
+            <div style="margin: 10px 0;">
+                <div style="font-size:0.75rem; color:#64748b; font-weight:700; text-transform:uppercase;">Security & Governance</div>
+                <div style="margin-top:2px;"><strong>AST Guardrail:</strong> <span class="badge-status-ok">sqlglot Active</span></div>
+                <div style="font-size:0.78rem; color:#64748b; margin-top:2px;">User Role: <code>app_readonly</code></div>
+                <div style="font-size:0.78rem; color:#64748b;">Enforcement: SELECT Only on marts</div>
+            </div>
+            <hr style="margin: 12px 0; border:0; border-top:1px solid #e2e8f0;" />
+            <div style="font-weight:600; font-size:0.85rem; margin-bottom:6px; color:#1e293b;">📚 Curated Marts Whitelist:</div>
+            <ul style="padding-left:18px; margin:0; font-size:0.8rem; line-height:1.6; color:#475569;">
+                <li><code>mart_daily_sales</code>: Sales, orders, AOV</li>
+                <li><code>mart_top_products</code>: Product leaderboards</li>
+                <li><code>mart_customer_summary</code>: Customer lifetime spend</li>
+                <li><code>mart_delivery_performance</code>: Fulfillment SLAs</li>
+            </ul>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# ------------------------------------------------------------------------------
+# Sidebar: Previous Saved Chats, Operating Mode & Sample Prompts
 # ------------------------------------------------------------------------------
 with st.sidebar:
-    st.title("⚙️ System Control")
+    st.title("💬 Chat History")
 
-    # Provider and Warehouse Status
-    provider_name = os.getenv("LLM_PROVIDER", "gemini").upper()
-    has_db = is_warehouse_configured()
+    # ➕ New Chat Button
+    if st.button("➕ New Chat", use_container_width=True, help="Archive current chat and start a fresh session"):
+        if st.session_state.messages:
+            first_user_q = next((m["content"] for m in st.session_state.messages if m["role"] == "user"), "Conversation")
+            title = first_user_q[:30] + ("..." if len(first_user_q) > 30 else "")
+            st.session_state.saved_chats.append({
+                "title": title,
+                "messages": list(st.session_state.messages),
+                "timestamp": time.strftime("%H:%M"),
+            })
+        st.session_state.messages = []
+        st.session_state.selected_sample_question = None
+        st.rerun()
 
-    st.markdown(f"**LLM Provider:** <span class='badge-provider'>{provider_name}</span>", unsafe_allow_html=True)
-    if has_db:
-        st.markdown("**Warehouse:** <span class='badge-status-ok'>Local Postgres (5434)</span>", unsafe_allow_html=True)
+    # List of Previous Saved Chats
+    st.subheader("📁 Saved Conversations")
+    if not st.session_state.saved_chats:
+        st.caption("No archived conversations yet. Previous sessions will appear here.")
     else:
-        st.markdown("**Warehouse:** <span class='badge-status-mock'>Offline / Mock Mode</span>", unsafe_allow_html=True)
+        for idx, chat in enumerate(reversed(st.session_state.saved_chats)):
+            real_idx = len(st.session_state.saved_chats) - 1 - idx
+            col_c, col_d = st.columns([8, 2])
+            with col_c:
+                if st.button(f"💬 {chat['title']}", key=f"load_saved_{real_idx}", use_container_width=True):
+                    st.session_state.messages = list(chat["messages"])
+                    st.rerun()
+            with col_d:
+                if st.button("✕", key=f"del_saved_{real_idx}", help="Delete chat"):
+                    st.session_state.saved_chats.pop(real_idx)
+                    st.rerun()
+
+    # Active Queries in Current Session
+    if st.session_state.messages:
+        active_queries = [m["content"] for m in st.session_state.messages if m["role"] == "user"]
+        if active_queries:
+            st.caption("**Active Session:**")
+            for q in active_queries[-3:]:
+                st.markdown(f"<span style='font-size:0.82rem; color:#64748b;'>• {q[:32]}...</span>", unsafe_allow_html=True)
+
+    if st.session_state.saved_chats or st.session_state.messages:
+        if st.button("🗑️ Clear All Chats", key="clear_all_history", use_container_width=True):
+            st.session_state.saved_chats = []
+            st.session_state.messages = []
+            st.session_state.query_history = []
+            st.rerun()
 
     st.divider()
 
-    # Marts Schema Overview
-    st.subheader("📚 Data Marts Catalog")
-    with st.expander("mart_daily_sales (Sales Trends)", expanded=False):
-        st.caption("Daily revenue, order volume, freight costs, and average order value (AOV).")
-    with st.expander("mart_top_products (Catalog)", expanded=False):
-        st.caption("Leaderboard ranking products and categories by gross revenue and volume.")
-    with st.expander("mart_customer_summary (Buyers)", expanded=False):
-        st.caption("Customer lifetime spend, geographic state/city, order count, and dates.")
-    with st.expander("mart_delivery_performance (Logistics)", expanded=False):
-        st.caption("Fulfillment SLAs, carrier transit durations, and percentage of delayed shipments.")
+    # Multi-Purpose Assistant Capabilities
+    st.subheader("🎛️ Assistant Capability")
+    assistant_mode = st.radio(
+        "Select Operating Mode:",
+        options=[
+            "🤖 Auto-Detect (Smart Router)",
+            "📊 Data Analytics & Insights",
+            "💡 Strategic Business Advisor",
+            "🏗️ Pipeline Architecture & Viva",
+        ],
+        index=0,
+        help="Auto-Detect routes automatically. You can also manually choose to query data, ask for business advice, or explore the engineering architecture."
+    )
 
     st.divider()
 
@@ -104,71 +279,156 @@ with st.sidebar:
     ]
 
     for i, q in enumerate(sample_questions, 1):
-        if st.button(f"{i}. {q}", key=f"sample_{i}", use_container_width=True):
+        if st.button(f"{i}. {q}", key=f"sample_{i}", width="stretch"):
             st.session_state.selected_sample_question = q
 
-    st.divider()
 
-    # Session Query History
-    st.subheader("🕒 Session Query History")
-    if not st.session_state.query_history:
-        st.caption("No queries executed yet.")
-    else:
-        for idx, item in enumerate(reversed(st.session_state.query_history[-5:])):
-            st.caption(f"**Q:** {item['question']}")
-            st.code(item['sql'], language="sql")
+# ------------------------------------------------------------------------------
+# Main Application Header & Right-Side System Popover
+# ------------------------------------------------------------------------------
+col_hdr_left, col_hdr_right = st.columns([7, 3])
+
+with col_hdr_left:
+    st.markdown("<div class='main-header'>⚡ NexusBI: Autonomous Conversational Intelligence</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='sub-header'>"
+        "Ask analytical questions or request live dashboards in natural language. Powered by LLM Text-to-SQL, "
+        "deterministic <code>sqlglot</code> AST security guardrails, and AWS RDS cloud data warehouse."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+with col_hdr_right:
+    with st.popover("⚙️ System Control & Status", use_container_width=True):
+        st.markdown("#### ⚙️ System Control")
+        st.markdown(f"**LLM Provider:** <span class='badge-provider'>{provider_name}</span>", unsafe_allow_html=True)
+        st.caption(f"Model: `{active_model}`")
+        st.markdown(f"**Warehouse:** <span class='{wh_badge_class}'>{wh_label}</span>", unsafe_allow_html=True)
+        st.caption(f"Host: `{wh_host_short}`")
+        st.markdown("**AST Guardrail:** <span class='badge-status-ok'>sqlglot Active</span>", unsafe_allow_html=True)
+        st.caption("Read-only access enforced strictly on `marts` schema.")
+        st.divider()
+        st.markdown("##### 📚 Data Marts Whitelist")
+        st.markdown(
+            "- `marts.mart_daily_sales`\n"
+            "- `marts.mart_top_products`\n"
+            "- `marts.mart_customer_summary`\n"
+            "- `marts.mart_delivery_performance`"
+        )
 
 
 # ------------------------------------------------------------------------------
-# Main Application Header
+# Full-Screen Live Dashboard Studio (Activated via ?dashboard=... query param)
 # ------------------------------------------------------------------------------
-st.markdown("<div class='main-header'>📊 Olist Conversational BI</div>", unsafe_allow_html=True)
-st.markdown(
-    "<div class='sub-header'>"
-    "Ask analytical questions in natural language. Queries are translated to SQL by LLM, "
-    "verified through <code>sqlglot</code> security guardrails, and executed against PostgreSQL data warehouse marts."
-    "</div>",
-    unsafe_allow_html=True,
-)
+active_dashboard = st.query_params.get("dashboard")
+if active_dashboard:
+    col_back, col_switch = st.columns([3, 7])
+    with col_back:
+        if st.button("⬅️ Return to AI Conversational BI", use_container_width=True):
+            st.query_params.pop("dashboard", None)
+            st.rerun()
+
+    dashboard_options = {
+        "sales": "📈 Sales & Revenue Dashboard",
+        "delivery": "🚚 Delivery & Fulfillment SLA Dashboard",
+        "customer": "👥 Customer & Regional Insights Dashboard",
+        "product": "📦 Product Catalog & Category Leaderboards",
+        "360": "🌐 Executive 360° Platform Cockpit",
+    }
+
+    norm_key = "sales"
+    for k in dashboard_options:
+        if k in active_dashboard.lower():
+            norm_key = k
+            break
+
+    keys_list = list(dashboard_options.keys())
+    selected_dash = col_switch.selectbox(
+        "Switch Dashboard Studio View:",
+        options=keys_list,
+        index=keys_list.index(norm_key),
+        format_func=lambda x: dashboard_options[x],
+    )
+
+    st.markdown("---")
+    render_dashboard_by_type(selected_dash)
+    st.stop()
+
 
 # ------------------------------------------------------------------------------
-# Intelligent Chart Rendering Helper
+# Intelligent Chart & KPI Rendering Helper
 # ------------------------------------------------------------------------------
 def render_intelligent_chart(df: pd.DataFrame):
-    """Detects date or categorical series and plots sensible interactive Streamlit charts."""
-    if df.empty or len(df.columns) < 2:
+    """Detects metrics, date or categorical series and plots rich interactive Streamlit charts and KPI cards."""
+    if df.empty:
         return
 
-    col_names_lower = [c.lower() for c in df.columns]
-
-    # Date-based time series -> Line Chart
-    date_cols = [c for c in df.columns if any(k in c.lower() for k in ["date", "month", "day", "time"])]
+    # 1. Summary KPI Metric Cards
     numeric_cols = [c for c in df.select_dtypes(include=["number"]).columns]
+    metrics_to_show = []
+
+    for c in numeric_cols:
+        c_lower = c.lower()
+        if "revenue" in c_lower or "spend" in c_lower or "price" in c_lower:
+            total_val = df[c].sum()
+            metrics_to_show.append((c.replace("_", " ").title(), f"${total_val:,.2f}"))
+        elif "orders" in c_lower or "units" in c_lower or "buyers" in c_lower or "count" in c_lower:
+            total_val = df[c].sum()
+            metrics_to_show.append((c.replace("_", " ").title(), f"{total_val:,.0f}"))
+        elif "avg" in c_lower or "rate" in c_lower or "pct" in c_lower:
+            mean_val = df[c].mean()
+            if "pct" in c_lower or "rate" in c_lower:
+                metrics_to_show.append((c.replace("_", " ").title(), f"{mean_val:.2f}%"))
+            else:
+                metrics_to_show.append((c.replace("_", " ").title(), f"${mean_val:,.2f}"))
+
+    if metrics_to_show and len(metrics_to_show) >= 2:
+        cols = st.columns(min(len(metrics_to_show), 4))
+        for idx, (label, val_str) in enumerate(metrics_to_show[:4]):
+            cols[idx].metric(label=label, value=val_str)
+
+    if len(df.columns) < 2 or not numeric_cols:
+        return
+
+    # 2. Date-based time series -> Multi-Chart Tabs ("Various Graphs")
+    date_cols = [c for c in df.columns if any(k in c.lower() for k in ["date", "month", "day", "time", "year"])]
 
     if date_cols and numeric_cols:
         primary_date_col = date_cols[0]
-        st.markdown("##### 📈 Trend Visualization")
-        chart_data = df[[primary_date_col] + numeric_cols[:2]].copy()
-        try:
-            chart_data = chart_data.set_index(primary_date_col)
-            st.line_chart(chart_data)
-            return
-        except Exception:
-            pass
+        st.markdown("##### 📈 Visual Trend Analysis")
 
-    # Categorical Leaderboard -> Bar Chart
+        if len(numeric_cols) == 1:
+            chart_data = df[[primary_date_col, numeric_cols[0]]].copy().set_index(primary_date_col)
+            st.line_chart(chart_data)
+        else:
+            tab_titles = [f"📊 {col.replace('_', ' ').title()}" for col in numeric_cols[:4]]
+            tabs = st.tabs(tab_titles)
+            for i, col in enumerate(numeric_cols[:4]):
+                with tabs[i]:
+                    sub_chart = df[[primary_date_col, col]].copy().set_index(primary_date_col)
+                    if any(term in col.lower() for term in ["order", "count", "units", "items"]):
+                        st.bar_chart(sub_chart)
+                    else:
+                        st.line_chart(sub_chart)
+        return
+
+    # 3. Categorical Leaderboard -> Multi-Metric Bar Chart Tabs
     cat_cols = [c for c in df.select_dtypes(include=["object", "string"]).columns]
     if cat_cols and numeric_cols:
         primary_cat = cat_cols[0]
-        primary_num = numeric_cols[0]
-        st.markdown("##### 📊 Comparative Bar Chart")
-        bar_data = df[[primary_cat, primary_num]].copy().head(10)
-        try:
-            bar_data = bar_data.set_index(primary_cat)
+        st.markdown("##### 📊 Comparative Visualizations")
+
+        if len(numeric_cols) == 1:
+            bar_data = df[[primary_cat, numeric_cols[0]]].copy().head(10).set_index(primary_cat)
             st.bar_chart(bar_data)
-            return
-        except Exception:
-            pass
+        else:
+            tab_titles = [f"📊 {col.replace('_', ' ').title()}" for col in numeric_cols[:3]]
+            tabs = st.tabs(tab_titles)
+            for i, col in enumerate(numeric_cols[:3]):
+                with tabs[i]:
+                    bar_data = df[[primary_cat, col]].copy().head(10).set_index(primary_cat)
+                    st.bar_chart(bar_data)
+        return
 
 
 # ------------------------------------------------------------------------------
@@ -177,12 +437,21 @@ def render_intelligent_chart(df: pd.DataFrame):
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
+        if "dashboard_type" in msg:
+            dtype_label = msg["dashboard_type"].title()
+            if st.button(f"🚀 Open Full-Screen {dtype_label} Dashboard", key=f"btn_hist_{msg['dashboard_type']}_{abs(hash(msg['content']))}"):
+                st.query_params["dashboard"] = msg["dashboard_type"]
+                st.rerun()
         if "sql" in msg:
             with st.expander("🔍 View Verified SQL Query", expanded=False):
                 st.code(msg["sql"], language="sql")
         if "df" in msg and msg["df"] is not None:
-            st.dataframe(msg["df"], use_container_width=True)
+            st.dataframe(msg["df"], width="stretch")
             render_intelligent_chart(msg["df"])
+        if "insights" in msg and msg["insights"]:
+            st.markdown("---")
+            st.markdown("### 💡 Executive Analysis & Business Recommendations")
+            st.markdown(msg["insights"])
 
 
 # ------------------------------------------------------------------------------
@@ -206,94 +475,197 @@ if user_prompt:
         schema_text = get_marts_schema_text()
         llm = get_llm_adapter()
 
-        with st.spinner("🤖 Translating question to PostgreSQL SQL..."):
-            t_start = time.time()
-            raw_sql = llm.generate_sql(question=user_prompt, schema_info=schema_text)
-
-        # 3. Deterministic AST Security Validation
-        is_valid, sanitized_sql, error_msg = validate_and_sanitize_sql(raw_sql)
-
-        if not is_valid:
-            # First attempt failed validation -> Trigger 1-turn retry to let LLM self-correct
-            with st.spinner("⚠️ Security rule triggered. Retrying with self-correction..."):
-                corrected_sql_raw = llm.generate_sql(
-                    question=user_prompt,
-                    schema_info=schema_text,
-                    error_context=f"Query rejected by security validator: {error_msg}. Follow strict rules.",
-                )
-                is_valid, sanitized_sql, error_msg = validate_and_sanitize_sql(corrected_sql_raw)
-
-        if not is_valid:
-            error_response = (
-                f"🛡️ **Query Rejected by Security Guardrail**\n\n"
-                f"**Reason:** {error_msg}\n\n"
-                f"*In a viva defense, this demonstrates our defense-in-depth architecture blocking unauthorized access.*"
-            )
-            message_placeholder.markdown(error_response)
-            st.session_state.messages.append({"role": "assistant", "content": error_response})
+        # Determine Intent (Auto-detect or Manual Override from Sidebar)
+        if "Data Analytics" in assistant_mode:
+            intent = "DATA_QUERY"
+        elif "Strategic Business" in assistant_mode:
+            intent = "BUSINESS_STRATEGY"
+        elif "Pipeline Architecture" in assistant_mode:
+            intent = "ARCHITECTURE_VIVA"
         else:
-            # 4. Execute Query Against Database
-            with st.spinner("⚡ Executing query against warehouse marts..."):
-                query_error = None
-                result_df = None
+            with st.spinner("🧭 Understanding question context & intent..."):
+                intent = llm.classify_intent(user_prompt)
 
-                try:
-                    result_df = execute_marts_query(sanitized_sql)
-                except Exception as db_err:
-                    query_error = str(db_err)
+        # ----------------------------------------------------------------------
+        # Path A: Dynamic Full-Screen Dashboard Generation (Localhost / AWS Cloud Link)
+        # ----------------------------------------------------------------------
+        if intent == "DASHBOARD_REQUEST":
+            dtype = detect_dashboard_type(user_prompt)
+            dtype_titles = {
+                "sales": "📈 Sales & Revenue Dashboard",
+                "delivery": "🚚 Delivery & Fulfillment SLA Dashboard",
+                "customer": "👥 Customer & Regional Insights Dashboard",
+                "product": "📦 Product Catalog & Category Leaderboards",
+                "360": "🌐 Executive 360° Platform Cockpit",
+            }
+            title = dtype_titles.get(dtype, "📈 Sales & Revenue Dashboard")
 
-                # If database execution failed -> Trigger 1-turn retry by sending database error back to LLM
-                if query_error:
-                    with st.spinner("🔄 Database returned an error. Requesting LLM to correct SQL..."):
-                        retry_sql_raw = llm.generate_sql(
-                            question=user_prompt,
-                            schema_info=schema_text,
-                            error_context=f"SQL execution error in warehouse: {query_error}",
-                        )
-                        is_valid_retry, sanitized_sql_retry, err_retry = validate_and_sanitize_sql(retry_sql_raw)
-                        if is_valid_retry:
-                            try:
-                                result_df = execute_marts_query(sanitized_sql_retry)
-                                sanitized_sql = sanitized_sql_retry
-                                query_error = None
-                            except Exception as db_err_retry:
-                                query_error = str(db_err_retry)
+            success_msg = (
+                f"### 🎉 {title} Generated Successfully!\n\n"
+                f"Your complete interactive dashboard is active and querying live data marts on AWS RDS Sydney.\n\n"
+                f"- 🔗 **Local URL Link:** [`http://localhost:8501/?dashboard={dtype}`](http://localhost:8501/?dashboard={dtype})\n"
+                f"- 🔗 **Multi-Page Portal:** [`http://localhost:8501/Live_Dashboards?type={dtype}`](http://localhost:8501/Live_Dashboards?type={dtype})\n\n"
+                f"*(When deployed on AWS, this exact link is accessible from any computer!)*\n\n"
+                f"👇 Click the launch button below or open the link to view the complete dashboard in full-screen:"
+            )
+            message_placeholder.markdown(success_msg)
 
-            # 5. Display Results
-            if query_error:
-                fail_msg = (
-                    f"❌ **Execution Error:** {query_error}\n\n"
-                    "Please refine your question or select one of the suggested sample questions in the sidebar."
+            col_btn, _ = st.columns([5, 5])
+            with col_btn:
+                if st.button(f"🚀 Open Full-Screen {dtype.title()} Dashboard", key="btn_launch_dash_live", use_container_width=True):
+                    st.query_params["dashboard"] = dtype
+                    st.rerun()
+
+            st.markdown("---")
+            st.markdown(f"#### 📊 In-Chat Interactive Preview ({dtype.title()}):")
+            render_dashboard_by_type(dtype)
+
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": success_msg,
+                "dashboard_type": dtype,
+            })
+            st.session_state.query_history.append({
+                "question": user_prompt,
+                "sql": f"-- Generated {dtype} dashboard from curated marts",
+            })
+
+        # ----------------------------------------------------------------------
+        # Path B: Direct Strategic Advisory or Architecture Mode (No SQL required)
+        # ----------------------------------------------------------------------
+        elif intent in ("BUSINESS_STRATEGY", "ARCHITECTURE_VIVA"):
+            spinner_msg = (
+                "💡 Formulating strategic e-commerce growth playbook..."
+                if intent == "BUSINESS_STRATEGY"
+                else "🏗️ Retrieving pipeline architecture & engineering specifications..."
+            )
+            with st.spinner(spinner_msg):
+                system_type = "architecture" if intent == "ARCHITECTURE_VIVA" else "advisory"
+                response_text = llm.generate_advisory_or_architecture(
+                    question=user_prompt, system_type=system_type
                 )
-                message_placeholder.markdown(fail_msg)
-                with st.expander("Attempted SQL"):
-                    st.code(sanitized_sql, language="sql")
-                st.session_state.messages.append({"role": "assistant", "content": fail_msg, "sql": sanitized_sql})
-            else:
-                elapsed_time = round(time.time() - t_start, 2)
-                row_count = len(result_df) if result_df is not None else 0
-
-                success_content = f"✅ Query executed successfully in **{elapsed_time}s** ({row_count} rows returned)."
-                message_placeholder.markdown(success_content)
-
-                with st.expander("🔍 View Verified SQL Query", expanded=False):
-                    st.code(sanitized_sql, language="sql")
-
-                if result_df is not None and not result_df.empty:
-                    st.dataframe(result_df, use_container_width=True)
-                    render_intelligent_chart(result_df)
-                else:
-                    st.info("Query returned 0 rows.")
-
-                # Save to session states
+                message_placeholder.markdown(response_text)
                 st.session_state.messages.append({
                     "role": "assistant",
-                    "content": success_content,
-                    "sql": sanitized_sql,
-                    "df": result_df,
+                    "content": response_text,
                 })
-                st.session_state.query_history.append({
-                    "question": user_prompt,
-                    "sql": sanitized_sql,
-                })
+
+        # ----------------------------------------------------------------------
+        # Path C: Warehouse Analytics & Data Insights (Text-to-SQL + AST + Synthesis)
+        # ----------------------------------------------------------------------
+        else:
+            try:
+                with st.spinner("🤖 Translating question to PostgreSQL SQL..."):
+                    t_start = time.time()
+                    raw_sql = llm.generate_sql(question=user_prompt, schema_info=schema_text)
+            except Exception as e:
+                st.error(f"❌ **LLM Error**: {e}")
+                st.info("💡 **Tip**: Switch to a free cloud AI (Gemini or Groq) in your `.env` for instant, crash-free responses that use 0 MB of your computer's RAM.")
+                st.stop()
+
+            # 3. Deterministic AST Security Validation
+            is_valid, sanitized_sql, error_msg = validate_and_sanitize_sql(raw_sql)
+
+            if not is_valid:
+                # First attempt failed validation -> Trigger 1-turn retry to let LLM self-correct
+                with st.spinner("⚠️ Security rule triggered. Retrying with self-correction..."):
+                    corrected_sql_raw = llm.generate_sql(
+                        question=user_prompt,
+                        schema_info=schema_text,
+                        error_context=f"Query rejected by security validator: {error_msg}. Follow strict rules.",
+                    )
+                    is_valid, sanitized_sql, error_msg = validate_and_sanitize_sql(corrected_sql_raw)
+
+            if not is_valid:
+                error_response = (
+                    f"🛡️ **Query Rejected by Security Guardrail**\n\n"
+                    f"**Reason:** {error_msg}\n\n"
+                    f"*In a viva defense, this demonstrates our defense-in-depth architecture blocking unauthorized access.*"
+                )
+                message_placeholder.markdown(error_response)
+                st.session_state.messages.append({"role": "assistant", "content": error_response})
+            else:
+                # 4. Execute Query Against Database
+                with st.spinner("⚡ Executing query against warehouse marts..."):
+                    query_error = None
+                    result_df = None
+
+                    try:
+                        result_df = execute_marts_query(sanitized_sql)
+                    except Exception as db_err:
+                        query_error = str(db_err)
+
+                    # If database execution failed -> Trigger 1-turn retry by sending database error back to LLM
+                    if query_error:
+                        with st.spinner("🔄 Database returned an error. Requesting LLM to correct SQL..."):
+                            retry_sql_raw = llm.generate_sql(
+                                question=user_prompt,
+                                schema_info=schema_text,
+                                error_context=f"SQL execution error in warehouse: {query_error}",
+                            )
+                            is_valid_retry, sanitized_sql_retry, err_retry = validate_and_sanitize_sql(retry_sql_raw)
+                            if is_valid_retry:
+                                try:
+                                    result_df = execute_marts_query(sanitized_sql_retry)
+                                    sanitized_sql = sanitized_sql_retry
+                                    query_error = None
+                                except Exception as db_err_retry:
+                                    query_error = str(db_err_retry)
+
+                # 5. Display Results
+                if query_error:
+                    fail_msg = (
+                        f"❌ **Execution Error:** {query_error}\n\n"
+                        "Please refine your question or select one of the suggested sample questions in the sidebar."
+                    )
+                    message_placeholder.markdown(fail_msg)
+                    with st.expander("Attempted SQL"):
+                        st.code(sanitized_sql, language="sql")
+                    st.session_state.messages.append({"role": "assistant", "content": fail_msg, "sql": sanitized_sql})
+                else:
+                    elapsed_time = round(time.time() - t_start, 2)
+                    row_count = len(result_df) if result_df is not None else 0
+
+                    success_content = f"✅ Query executed successfully in **{elapsed_time}s** ({row_count} rows returned)."
+                    message_placeholder.markdown(success_content)
+
+                    with st.expander("🔍 View Verified SQL Query", expanded=False):
+                        st.code(sanitized_sql, language="sql")
+
+                    insights_text = None
+                    if result_df is not None and not result_df.empty:
+                        st.dataframe(result_df, width="stretch")
+                        render_intelligent_chart(result_df)
+
+                        # 6. Executive Analysis & Recommendations Synthesis
+                        with st.spinner("🧠 Generating executive analysis & strategic business recommendations..."):
+                            summary_preview = result_df.head(20).to_string(index=False)
+                            try:
+                                insights_text = llm.generate_insights(
+                                    question=user_prompt,
+                                    sql_query=sanitized_sql,
+                                    data_summary=summary_preview,
+                                    )
+                            except Exception as insight_err:
+                                insights_text = f"⚠️ *Note on strategic synthesis: {insight_err}*"
+
+                        if insights_text:
+                            st.markdown("---")
+                            st.markdown("### 💡 Executive Analysis & Strategic Recommendations")
+                            st.markdown(insights_text)
+                    else:
+                        st.info("Query returned 0 rows.")
+
+                    # Save to session states
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": success_content,
+                        "sql": sanitized_sql,
+                        "df": result_df,
+                        "insights": insights_text,
+                    })
+                    st.session_state.query_history.append({
+                        "question": user_prompt,
+                        "sql": sanitized_sql,
+                    })
 

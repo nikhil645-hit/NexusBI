@@ -561,3 +561,4 @@ Capture these screenshots as evidence for your college project report and viva p
 | **Streamlit displays: "Warehouse is not yet configured"** | `WAREHOUSE_HOST` or `WAREHOUSE_APP_PASSWORD` missing in `.env` | Ensure `.env` in project root contains `WAREHOUSE_HOST=localhost` and `WAREHOUSE_APP_PASSWORD`. |
 | **Streamlit shows: Query Rejected by Security Guardrail** | Query attempted DDL or non-marts tables | This is normal behavior! The AST validator intentionally protects the database against prompt injection. |
 | **`dbt run` fails with syntax error on `datediff`** | Using old Redshift SQL syntax | Ensure `mart_delivery_performance.sql` uses `(cast(delivered as date) - cast(purchase as date))`. |
+

@@ -12,11 +12,12 @@ olist_dbt:
     dev:
       type: postgres
       host: "{{ env_var('WAREHOUSE_HOST', 'localhost') }}"
-      port: {{ env_var('WAREHOUSE_PORT', '5434') | as_number }}
+      port: "{{ env_var('WAREHOUSE_PORT', '5434') | as_number }}"
       user: "{{ env_var('WAREHOUSE_DBT_USER', 'dbt_user') }}"
       password: "{{ env_var('WAREHOUSE_DBT_PASSWORD', 'dbt_user_password') }}"
       dbname: "{{ env_var('WAREHOUSE_DB', 'warehouse') }}"
       schema: "{{ env_var('DBT_DEFAULT_SCHEMA', 'staging') }}"
+      sslmode: "{{ env_var('WAREHOUSE_SSLMODE', 'prefer') }}"
       threads: 4
       keepalives_idle: 240
       connect_timeout: 30

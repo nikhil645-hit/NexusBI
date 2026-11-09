@@ -86,6 +86,14 @@ def validate_and_sanitize_sql(
         return False, "", f"Security Violation: Forbidden operation '{type(node).__name__}' found in query tree."
 
     # Rule 3 & 4: Table and Schema Isolation
+    # Collect CTE (Common Table Expression / WITH ... AS) aliases
+    # These are temporary in-memory views created by the query, not physical warehouse tables.
+    cte_aliases = {
+        cte.alias_or_name.lower()
+        for cte in expression.find_all(exp.CTE)
+        if cte.alias_or_name
+    }
+
     # Traverse all Table references in AST
     tables_found = list(expression.find_all(exp.Table))
     if not tables_found:
@@ -95,6 +103,10 @@ def validate_and_sanitize_sql(
     for table_node in tables_found:
         table_name = table_node.name.lower()
         schema_name = table_node.db.lower() if table_node.db else ""
+
+        # Skip CTE temporary result sets (they are internal aliases, not physical database tables)
+        if table_name in cte_aliases and not schema_name:
+            continue
 
         # Explicitly reject references to sensitive schemas
         if schema_name in ("raw", "staging", "pg_catalog", "information_schema"):
