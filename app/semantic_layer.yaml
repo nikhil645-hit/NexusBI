@@ -163,3 +163,4 @@ canonical_examples:
       GROUP BY customer_state
       ORDER BY total_customers DESC
       LIMIT 5;
+

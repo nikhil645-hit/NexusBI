@@ -62,3 +62,4 @@ def log_query_event(
     except Exception as e:
         # Structured logging failure must never crash user-facing application
         pass
+

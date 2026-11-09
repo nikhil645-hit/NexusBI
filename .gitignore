@@ -44,7 +44,10 @@ dbt/olist_dbt/logs/
 dbt/olist_dbt/.user.yml
 logs/
 
-# Airflow runtime logs & SQLite/pid files
+# Temporary binaries and response dumps
+kubectl
+curl_response
+*.tmp
 airflow/logs/
 *.pid
 

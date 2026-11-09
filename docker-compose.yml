@@ -1,0 +1,39 @@
+version: "3.8"
+
+services:
+  warehouse:
+    image: postgres:16-alpine
+    container_name: nexusbi-warehouse
+    environment:
+      POSTGRES_DB: warehouse
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_local_password
+    ports:
+      - "5434:5432"
+    volumes:
+      - ./scripts/init_local_warehouse.sql:/docker-entrypoint-initdb.d/01_init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d warehouse"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    container_name: nexusbi-app
+    depends_on:
+      warehouse:
+        condition: service_healthy
+    ports:
+      - "8501:8501"
+    environment:
+      DB_HOST: warehouse
+      DB_PORT: "5432"
+      DB_NAME: warehouse
+      DB_USER: app_readonly
+      DB_PASSWORD: readonly_local_pass
+      DB_SSLMODE: disable
+      LLM_PROVIDER: mock
+      RATE_LIMIT_PER_HOUR: "50"
+      MAX_PROMPT_LENGTH: "500"
+    restart: unless-stopped

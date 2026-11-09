@@ -2,22 +2,64 @@
 # profiles.yml - Warehouse Connection Profile for dbt-postgres
 # All credentials are read from environment variables (.env).
 #
-# In a viva: Explain that dbt isolates warehouse connection details here,
-# allowing our pipeline to run 100% locally on Postgres without cloud dependencies.
+# Supported Targets:
+#   - dev   : Default target, reads DB_* (with fallback to WAREHOUSE_*)
+#   - local : Local Docker PostgreSQL warehouse (port 5434)
+#   - aws   : AWS RDS PostgreSQL (ap-southeast-2 Sydney)
+#   - neon  : Serverless Neon PostgreSQL (cloud)
 # ==============================================================================
 
 olist_dbt:
-  target: dev
+  target: "{{ env_var('DBT_TARGET', 'dev') }}"
   outputs:
     dev:
       type: postgres
-      host: "{{ env_var('WAREHOUSE_HOST', 'localhost') }}"
-      port: "{{ env_var('WAREHOUSE_PORT', '5434') | as_number }}"
-      user: "{{ env_var('WAREHOUSE_DBT_USER', 'dbt_user') }}"
-      password: "{{ env_var('WAREHOUSE_DBT_PASSWORD', 'dbt_user_password') }}"
-      dbname: "{{ env_var('WAREHOUSE_DB', 'warehouse') }}"
+      host: "{{ env_var('DB_HOST', env_var('WAREHOUSE_HOST', 'localhost')) }}"
+      port: "{{ env_var('DB_PORT', env_var('WAREHOUSE_PORT', '5432')) | as_number }}"
+      user: "{{ env_var('DBT_USER', env_var('WAREHOUSE_DBT_USER', 'dbt_user')) }}"
+      password: "{{ env_var('DBT_PASSWORD', env_var('WAREHOUSE_DBT_PASSWORD', '')) }}"
+      dbname: "{{ env_var('DB_NAME', env_var('WAREHOUSE_DB', 'warehouse')) }}"
       schema: "{{ env_var('DBT_DEFAULT_SCHEMA', 'staging') }}"
-      sslmode: "{{ env_var('WAREHOUSE_SSLMODE', 'prefer') }}"
+      sslmode: "{{ env_var('DB_SSLMODE', env_var('WAREHOUSE_SSLMODE', 'prefer')) }}"
+      threads: 4
+      keepalives_idle: 240
+      connect_timeout: 30
+
+    local:
+      type: postgres
+      host: "{{ env_var('LOCAL_DB_HOST', 'localhost') }}"
+      port: "{{ env_var('LOCAL_DB_PORT', '5434') | as_number }}"
+      user: "{{ env_var('LOCAL_DB_USER', 'dbt_user') }}"
+      password: "{{ env_var('LOCAL_DB_PASSWORD', 'dbt_user_password') }}"
+      dbname: "{{ env_var('LOCAL_DB_NAME', 'warehouse') }}"
+      schema: "{{ env_var('DBT_DEFAULT_SCHEMA', 'staging') }}"
+      sslmode: disable
+      threads: 4
+      keepalives_idle: 240
+      connect_timeout: 30
+
+    aws:
+      type: postgres
+      host: "{{ env_var('AWS_RDS_HOST', env_var('WAREHOUSE_HOST', 'localhost')) }}"
+      port: "{{ env_var('AWS_RDS_PORT', env_var('WAREHOUSE_PORT', '5432')) | as_number }}"
+      user: "{{ env_var('AWS_RDS_USER', env_var('WAREHOUSE_DBT_USER', 'dbt_user')) }}"
+      password: "{{ env_var('AWS_RDS_PASSWORD', env_var('WAREHOUSE_DBT_PASSWORD', '')) }}"
+      dbname: "{{ env_var('AWS_RDS_DB', env_var('WAREHOUSE_DB', 'warehouse')) }}"
+      schema: "{{ env_var('DBT_DEFAULT_SCHEMA', 'staging') }}"
+      sslmode: "{{ env_var('AWS_RDS_SSLMODE', 'require') }}"
+      threads: 4
+      keepalives_idle: 240
+      connect_timeout: 30
+
+    neon:
+      type: postgres
+      host: "{{ env_var('NEON_DB_HOST', env_var('DB_HOST', 'localhost')) }}"
+      port: "{{ env_var('NEON_DB_PORT', env_var('DB_PORT', '5432')) | as_number }}"
+      user: "{{ env_var('NEON_DB_USER', env_var('DBT_USER', 'dbt_user')) }}"
+      password: "{{ env_var('NEON_DB_PASSWORD', env_var('DBT_PASSWORD', '')) }}"
+      dbname: "{{ env_var('NEON_DB_NAME', env_var('DB_NAME', 'neondb')) }}"
+      schema: "{{ env_var('DBT_DEFAULT_SCHEMA', 'staging') }}"
+      sslmode: require
       threads: 4
       keepalives_idle: 240
       connect_timeout: 30
