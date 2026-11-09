@@ -32,6 +32,11 @@ def get_semantic_context() -> str:
         for name, info in data.get("metrics", {}).items():
             lines.append(f"- {name.replace('_', ' ').title()}: {info['formula']} (Table: {info['table']}) - {info['description']}")
 
+        if data.get("query_rules"):
+            lines.append("\nCRITICAL QUERY RULES:")
+            for rule in data["query_rules"]:
+                lines.append(f"- {rule}")
+
         lines.append("\nCANONICAL FEW-SHOT EXAMPLES:")
         for ex in data.get("canonical_examples", []):
             lines.append(f"-- Question: {ex['question']}")

@@ -3,7 +3,7 @@
 [![CI Test Suite](https://github.com/nexusbi/nexusbi/actions/workflows/ci.yml/badge.svg)](https://github.com/nexusbi/nexusbi/actions/workflows/ci.yml)
 [![dbt Tests](https://img.shields.io/badge/dbt%20tests-45%20passed-brightgreen.svg)](dbt/olist_dbt/models/marts/_marts__models.yml)
 [![AST Guardrail Tests](https://img.shields.io/badge/AST%20Guardrail-59%20passed-blue.svg)](tests/test_sql_guardrail.py)
-[![Benchmark Accuracy](https://img.shields.io/badge/Benchmark%20Accuracy-100%25%20(30%2F30)-success.svg)](benchmarks/results/REPORT.md)
+[![Benchmark Accuracy](https://img.shields.io/badge/Benchmark%20Accuracy-80.0%25%20(24%2F30)-success.svg)](benchmarks/results/REPORT.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 NexusBI is a modern data engineering pipeline and conversational business intelligence application built by a 3rd-year computer engineering student. It translates natural language questions into verified, read-only SQL queries over **100,000 real-world e-commerce transactions** (the Brazilian Olist dataset) using a deterministic **Abstract Syntax Tree (AST) security guardrail**.
@@ -23,7 +23,7 @@ All figures below are generated directly by our test suites, dbt assertions, and
 | **Monthly Logistics SLA Points** | **23** months tracking delivery lead times and delays | `marts.mart_delivery_performance` |
 | **Automated dbt Data Tests** | **45 passed** (0 errors, 0 warnings) | `dbt test` against warehouse |
 | **AST Guardrail Unit Tests** | **59 passed** (22 allowed, 36 blocked vectors) | `pytest -v tests/test_sql_guardrail.py` |
-| **Text-to-SQL Benchmark Score** | **100.0%** (30/30 questions passed semantic check) | `benchmarks/run_benchmark.py --mock` |
+| **Text-to-SQL Benchmark Score** | **80.0%** (24/30 questions passed live check; 73.3% v1 baseline) | `benchmarks/run_benchmark.py` |
 | **LLM Generation Latency** | ~0.5 to 1.5 seconds per query | Cloud Groq API (`openai/gpt-oss-120b`) |
 
 ---
@@ -154,12 +154,14 @@ make benchmark
 ```
 
 ### Benchmark Results (30 Questions):
-- **Overall Accuracy**: **`100.0%`** (30/30 passed)
-- **Easy Questions**: **`100.0%`** (10/10 passed) - Totals, state counts, top-N categories
-- **Medium Questions**: **`100.0%`** (12/12 passed) - Monthly trends, AOV, on-time rate %, repeat buyers
-- **Hard Questions**: **`100.0%`** (8/8 passed) - MoM growth, rolling 7-day averages, cross-mart joins
+- **Overall Accuracy**: **`80.0%`** (24/30 passed; initial strict baseline was `73.3%` / 22/30)
+- **Easy Questions**: **`90.0%`** (9/10 passed) - Totals, state counts, top-N categories
+- **Medium Questions**: **`83.3%`** (10/12 passed) - Monthly trends, AOV, on-time rate %, repeat buyers
+- **Hard Questions**: **`62.5%`** (5/8 passed) - MoM growth, rolling 7-day averages, cross-mart joins
 
-See the full report in [benchmarks/results/REPORT.md](benchmarks/results/REPORT.md).
+The benchmark score progressed from an initial strict baseline of 73.3% (22/30) to 80.0% (24/30) live, where 5 scoring-harness fixes (aligning expected columns to question prompts in q19/q25/q30, normalizing date/month formats in q21, and clarifying prompt wording in q29) eliminated artificial grading mismatches, while semantic layer query rules eliminated SQL generation anti-patterns such as improper outer joins.
+
+See the full report in [benchmarks/results/REPORT.md](benchmarks/results/REPORT.md) and baseline archive in [benchmarks/results/v1_REPORT.md](benchmarks/results/v1_REPORT.md).
 
 ---
 

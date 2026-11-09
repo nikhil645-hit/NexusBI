@@ -131,6 +131,13 @@ metrics:
     table: "marts.mart_customer_summary"
     description: "Count of customers who have made more than one purchase."
 
+query_rules:
+  - "Weighted averages: use SUM(numerator)/SUM(denominator); never AVG of pre-computed averages."
+  - "Rolling or window calculations: compute them in a CTE over the full table first, then filter or LIMIT in the outer query."
+  - "\"Last N recorded days/months\" means the last N rows ordered by date, not N calendar days."
+  - "Prefer existing pre-computed columns (e.g. pct_late_vs_estimated) instead of recalculating."
+  - "When combining the two monthly marts, join on year_month with an INNER JOIN."
+
 canonical_examples:
   - question: "What is the monthly revenue trend for 2018?"
     sql: |

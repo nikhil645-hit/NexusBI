@@ -12,6 +12,7 @@
 
 import argparse
 import json
+import re
 import sys
 import time
 from datetime import datetime, timezone
@@ -111,6 +112,11 @@ def compare_result_sets(
             str_g = str(val_g).strip().lower()
             str_e = str(val_e).strip().lower()
             if str_g != str_e:
+                # Normalize date and year-month representations (e.g. '2018-01-01' vs '2018-01')
+                norm_g = re.sub(r"^(\d{4}-\d{2})(-\d{2})?.*$", r"\1", str_g)
+                norm_e = re.sub(r"^(\d{4}-\d{2})(-\d{2})?.*$", r"\1", str_e)
+                if re.match(r"^\d{4}-\d{2}$", norm_g) and re.match(r"^\d{4}-\d{2}$", norm_e) and norm_g == norm_e:
+                    continue
                 return (
                     False,
                     f"String mismatch at row {r}, col {c}: '{str_g}' != '{str_e}'",

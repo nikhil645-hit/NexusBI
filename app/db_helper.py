@@ -129,6 +129,30 @@ def get_connection():
         raise RuntimeError(f"Failed to connect to data warehouse: {err_msg}")
 
 
+def _fetch_dataframe(conn, sql: str) -> pd.DataFrame:
+    """
+    Executes a read query via cursor and builds a DataFrame directly.
+    Avoids pandas UserWarning for raw DBAPI2 connections while preserving types.
+    """
+    import decimal
+
+    with conn.cursor() as cur:
+        cur.execute(sql)
+        if cur.description is None:
+            return pd.DataFrame()
+        columns = [desc[0] for desc in cur.description]
+        rows = cur.fetchall()
+        df = pd.DataFrame(rows, columns=columns)
+
+        # Convert Decimal types to float for seamless downstream visualization and calculation
+        for col in df.columns:
+            if df[col].dtype == object and len(df) > 0:
+                first_valid = df[col].dropna().iloc[0] if not df[col].dropna().empty else None
+                if isinstance(first_valid, decimal.Decimal):
+                    df[col] = pd.to_numeric(df[col], errors="coerce")
+        return df
+
+
 def get_marts_schema_text() -> str:
     """
     Returns the schema definitions of the marts tables to feed into the LLM context.
@@ -145,7 +169,7 @@ def get_marts_schema_text() -> str:
         WHERE table_schema = 'marts'
         ORDER BY table_name, ordinal_position;
         """
-        df = pd.read_sql_query(query, conn)
+        df = _fetch_dataframe(conn, query)
         conn.close()
 
         if df.empty:
@@ -173,7 +197,7 @@ def execute_marts_query(sanitized_sql: str) -> pd.DataFrame:
 
     conn = get_connection()
     try:
-        df = pd.read_sql_query(sanitized_sql, conn)
+        df = _fetch_dataframe(conn, sanitized_sql)
         return df
     except Exception as e:
         err_str = str(e)
