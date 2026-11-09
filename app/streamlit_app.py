@@ -48,6 +48,7 @@ try:
     )
     from app.llm_helper import get_llm_adapter, BaseLLMAdapter, detect_dashboard_type
     from app.dashboard_renderer import render_dashboard_by_type
+    from app.audit_logger import log_query_event
 except ModuleNotFoundError:
     from sql_validator import validate_and_sanitize_sql
     from db_helper import (
@@ -57,6 +58,7 @@ except ModuleNotFoundError:
     )
     from llm_helper import get_llm_adapter, BaseLLMAdapter, detect_dashboard_type
     from dashboard_renderer import render_dashboard_by_type
+    from audit_logger import log_query_event
 
 # ------------------------------------------------------------------------------
 # Page Configuration & Styling
@@ -143,11 +145,36 @@ if "selected_sample_question" not in st.session_state:
 if "saved_chats" not in st.session_state:
     st.session_state.saved_chats = []
 
+if "session_id" not in st.session_state:
+    import uuid
+    st.session_state.session_id = str(uuid.uuid4())[:8]
+
+if "request_timestamps" not in st.session_state:
+    st.session_state.request_timestamps = []
+
+if "total_requests" not in st.session_state:
+    st.session_state.total_requests = 0
+
+if "last_latency_ms" not in st.session_state:
+    st.session_state.last_latency_ms = 0.0
+
+
+# Observability & Rate Limiting Configuration
+RATE_LIMIT_PER_HOUR = int(os.getenv("RATE_LIMIT_PER_HOUR", "20"))
+MAX_PROMPT_LENGTH = int(os.getenv("MAX_PROMPT_LENGTH", "500"))
+
+# Clean up timestamps older than 1 hour (3600s)
+_now_ts = time.time()
+st.session_state.request_timestamps = [
+    t for t in st.session_state.request_timestamps if _now_ts - t < 3600
+]
+hourly_requests_used = len(st.session_state.request_timestamps)
+
 
 # System Metadata Helpers
 provider_name = os.getenv("LLM_PROVIDER", "gemini").upper()
 has_db = is_warehouse_configured()
-wh_host = os.getenv("WAREHOUSE_HOST", "localhost")
+wh_host = os.getenv("DB_HOST") or os.getenv("WAREHOUSE_HOST", "localhost")
 wh_label = "AWS RDS (Sydney)" if "rds.amazonaws.com" in wh_host else ("Connected" if has_db else "Offline / Mock")
 wh_badge_class = "badge-status-ok" if has_db else "badge-status-mock"
 active_model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b") if provider_name == "GROQ" else os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
@@ -181,6 +208,12 @@ st.markdown(
                 <div style="margin-top:2px;"><strong>AST Guardrail:</strong> <span class="badge-status-ok">sqlglot Active</span></div>
                 <div style="font-size:0.78rem; color:#64748b; margin-top:2px;">User Role: <code>app_readonly</code></div>
                 <div style="font-size:0.78rem; color:#64748b;">Enforcement: SELECT Only on marts</div>
+            </div>
+            <div style="margin: 10px 0;">
+                <div style="font-size:0.75rem; color:#64748b; font-weight:700; text-transform:uppercase;">Usage & Health</div>
+                <div style="font-size:0.78rem; color:#334155; margin-top:2px;">Session Requests: <strong>{st.session_state.total_requests}</strong></div>
+                <div style="font-size:0.78rem; color:#334155;">Hourly Usage: <strong>{hourly_requests_used} / {RATE_LIMIT_PER_HOUR}</strong></div>
+                <div style="font-size:0.78rem; color:#334155;">Last Latency: <strong>{st.session_state.last_latency_ms:.0f} ms</strong></div>
             </div>
             <hr style="margin: 12px 0; border:0; border-top:1px solid #e2e8f0;" />
             <div style="font-weight:600; font-size:0.85rem; margin-bottom:6px; color:#1e293b;">📚 Curated Marts Whitelist:</div>
@@ -307,6 +340,11 @@ with col_hdr_right:
         st.caption(f"Host: `{wh_host_short}`")
         st.markdown("**AST Guardrail:** <span class='badge-status-ok'>sqlglot Active</span>", unsafe_allow_html=True)
         st.caption("Read-only access enforced strictly on `marts` schema.")
+        st.divider()
+        st.markdown("##### 📊 Usage & Health")
+        st.markdown(f"- **Session Requests:** `{st.session_state.total_requests}`")
+        st.markdown(f"- **Hourly Usage:** `{hourly_requests_used} / {RATE_LIMIT_PER_HOUR}`")
+        st.markdown(f"- **Last Latency:** `{st.session_state.last_latency_ms:.0f} ms`")
         st.divider()
         st.markdown("##### 📚 Data Marts Whitelist")
         st.markdown(
@@ -464,6 +502,46 @@ if st.session_state.selected_sample_question:
     st.session_state.selected_sample_question = None
 
 if user_prompt:
+    # 0. Abuse Protection: Enforce maximum input length
+    if len(user_prompt) > MAX_PROMPT_LENGTH:
+        st.warning(
+            f"⚠️ **Input Length Exceeded:** Your query is {len(user_prompt)} characters, "
+            f"exceeding the limit of {MAX_PROMPT_LENGTH} characters. Please provide a more concise question."
+        )
+        log_query_event(
+            session_id=st.session_state.session_id,
+            intent="UNKNOWN",
+            question=user_prompt[:80],
+            generated_sql=None,
+            guardrail_result="BLOCKED",
+            rows_returned=0,
+            latency_ms=0.0,
+            error="Prompt length exceeded limit",
+        )
+        st.stop()
+
+    # 0. Abuse Protection: Enforce per-session hourly rate limit
+    if hourly_requests_used >= RATE_LIMIT_PER_HOUR:
+        st.warning(
+            f"⚠️ **Rate Limit Exceeded:** You have reached the limit of {RATE_LIMIT_PER_HOUR} requests "
+            f"per hour for this session. Please wait before submitting additional queries."
+        )
+        log_query_event(
+            session_id=st.session_state.session_id,
+            intent="UNKNOWN",
+            question=user_prompt[:80],
+            generated_sql=None,
+            guardrail_result="BLOCKED",
+            rows_returned=0,
+            latency_ms=0.0,
+            error="Hourly rate limit exceeded",
+        )
+        st.stop()
+
+    # Record request for session statistics
+    st.session_state.request_timestamps.append(time.time())
+    st.session_state.total_requests += 1
+
     # 1. Display User Question
     st.session_state.messages.append({"role": "user", "content": user_prompt})
     with st.chat_message("user"):
@@ -474,6 +552,7 @@ if user_prompt:
         message_placeholder = st.empty()
         schema_text = get_marts_schema_text()
         llm = get_llm_adapter()
+        t_pipeline_start = time.time()
 
         # Determine Intent (Auto-detect or Manual Override from Sidebar)
         if "Data Analytics" in assistant_mode:
@@ -484,7 +563,10 @@ if user_prompt:
             intent = "ARCHITECTURE_VIVA"
         else:
             with st.spinner("🧭 Understanding question context & intent..."):
-                intent = llm.classify_intent(user_prompt)
+                try:
+                    intent = llm.classify_intent(user_prompt)
+                except Exception:
+                    intent = "DATA_QUERY"
 
         # ----------------------------------------------------------------------
         # Path A: Dynamic Full-Screen Dashboard Generation (Localhost / AWS Cloud Link)
@@ -529,6 +611,18 @@ if user_prompt:
                 "question": user_prompt,
                 "sql": f"-- Generated {dtype} dashboard from curated marts",
             })
+            latency_ms = (time.time() - t_pipeline_start) * 1000
+            st.session_state.last_latency_ms = latency_ms
+            log_query_event(
+                session_id=st.session_state.session_id,
+                intent="DASHBOARD_REQUEST",
+                question=user_prompt,
+                generated_sql=f"-- {dtype} dashboard",
+                guardrail_result="PASSED",
+                rows_returned=0,
+                latency_ms=latency_ms,
+                error=None,
+            )
 
         # ----------------------------------------------------------------------
         # Path B: Direct Strategic Advisory or Architecture Mode (No SQL required)
@@ -541,26 +635,54 @@ if user_prompt:
             )
             with st.spinner(spinner_msg):
                 system_type = "architecture" if intent == "ARCHITECTURE_VIVA" else "advisory"
-                response_text = llm.generate_advisory_or_architecture(
-                    question=user_prompt, system_type=system_type
-                )
+                try:
+                    response_text = llm.generate_advisory_or_architecture(
+                        question=user_prompt, system_type=system_type
+                    )
+                except Exception as e:
+                    response_text = f"The advisory assistant encountered an error ({type(e).__name__}). Please retry shortly."
+
                 message_placeholder.markdown(response_text)
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": response_text,
                 })
+                latency_ms = (time.time() - t_pipeline_start) * 1000
+                st.session_state.last_latency_ms = latency_ms
+                log_query_event(
+                    session_id=st.session_state.session_id,
+                    intent=intent,
+                    question=user_prompt,
+                    generated_sql=None,
+                    guardrail_result="PASSED",
+                    rows_returned=0,
+                    latency_ms=latency_ms,
+                    error=None,
+                )
 
         # ----------------------------------------------------------------------
         # Path C: Warehouse Analytics & Data Insights (Text-to-SQL + AST + Synthesis)
         # ----------------------------------------------------------------------
         else:
+            raw_sql = None
             try:
                 with st.spinner("🤖 Translating question to PostgreSQL SQL..."):
                     t_start = time.time()
                     raw_sql = llm.generate_sql(question=user_prompt, schema_info=schema_text)
             except Exception as e:
-                st.error(f"❌ **LLM Error**: {e}")
-                st.info("💡 **Tip**: Switch to a free cloud AI (Gemini or Groq) in your `.env` for instant, crash-free responses that use 0 MB of your computer's RAM.")
+                err_msg = f"Unable to reach the LLM provider ({type(e).__name__}). Please verify network connectivity or API key configuration."
+                st.error(f"❌ **AI Service Unavailable**: {err_msg}")
+                latency_ms = (time.time() - t_pipeline_start) * 1000
+                log_query_event(
+                    session_id=st.session_state.session_id,
+                    intent="DATA_QUERY",
+                    question=user_prompt,
+                    generated_sql=None,
+                    guardrail_result="ERROR",
+                    rows_returned=0,
+                    latency_ms=latency_ms,
+                    error=str(e),
+                )
                 st.stop()
 
             # 3. Deterministic AST Security Validation
@@ -569,21 +691,36 @@ if user_prompt:
             if not is_valid:
                 # First attempt failed validation -> Trigger 1-turn retry to let LLM self-correct
                 with st.spinner("⚠️ Security rule triggered. Retrying with self-correction..."):
-                    corrected_sql_raw = llm.generate_sql(
-                        question=user_prompt,
-                        schema_info=schema_text,
-                        error_context=f"Query rejected by security validator: {error_msg}. Follow strict rules.",
-                    )
-                    is_valid, sanitized_sql, error_msg = validate_and_sanitize_sql(corrected_sql_raw)
+                    try:
+                        corrected_sql_raw = llm.generate_sql(
+                            question=user_prompt,
+                            schema_info=schema_text,
+                            error_context=f"Query rejected by security validator: {error_msg}. Follow strict rules.",
+                        )
+                        is_valid, sanitized_sql, error_msg = validate_and_sanitize_sql(corrected_sql_raw)
+                    except Exception:
+                        pass
 
             if not is_valid:
+                latency_ms = (time.time() - t_pipeline_start) * 1000
+                st.session_state.last_latency_ms = latency_ms
                 error_response = (
                     f"🛡️ **Query Rejected by Security Guardrail**\n\n"
                     f"**Reason:** {error_msg}\n\n"
-                    f"*In a viva defense, this demonstrates our defense-in-depth architecture blocking unauthorized access.*"
+                    f"*Defense-in-depth AST guardrail prevented unauthorized database access.*"
                 )
                 message_placeholder.markdown(error_response)
                 st.session_state.messages.append({"role": "assistant", "content": error_response})
+                log_query_event(
+                    session_id=st.session_state.session_id,
+                    intent="DATA_QUERY",
+                    question=user_prompt,
+                    generated_sql=raw_sql,
+                    guardrail_result="BLOCKED",
+                    rows_returned=0,
+                    latency_ms=latency_ms,
+                    error=error_msg,
+                )
             else:
                 # 4. Execute Query Against Database
                 with st.spinner("⚡ Executing query against warehouse marts..."):
@@ -598,21 +735,24 @@ if user_prompt:
                     # If database execution failed -> Trigger 1-turn retry by sending database error back to LLM
                     if query_error:
                         with st.spinner("🔄 Database returned an error. Requesting LLM to correct SQL..."):
-                            retry_sql_raw = llm.generate_sql(
-                                question=user_prompt,
-                                schema_info=schema_text,
-                                error_context=f"SQL execution error in warehouse: {query_error}",
-                            )
-                            is_valid_retry, sanitized_sql_retry, err_retry = validate_and_sanitize_sql(retry_sql_raw)
-                            if is_valid_retry:
-                                try:
+                            try:
+                                retry_sql_raw = llm.generate_sql(
+                                    question=user_prompt,
+                                    schema_info=schema_text,
+                                    error_context=f"SQL execution error in warehouse: {query_error}",
+                                )
+                                is_valid_retry, sanitized_sql_retry, err_retry = validate_and_sanitize_sql(retry_sql_raw)
+                                if is_valid_retry:
                                     result_df = execute_marts_query(sanitized_sql_retry)
                                     sanitized_sql = sanitized_sql_retry
                                     query_error = None
-                                except Exception as db_err_retry:
-                                    query_error = str(db_err_retry)
+                            except Exception as db_err_retry:
+                                query_error = str(db_err_retry)
 
                 # 5. Display Results
+                latency_ms = (time.time() - t_pipeline_start) * 1000
+                st.session_state.last_latency_ms = latency_ms
+
                 if query_error:
                     fail_msg = (
                         f"❌ **Execution Error:** {query_error}\n\n"
@@ -622,8 +762,18 @@ if user_prompt:
                     with st.expander("Attempted SQL"):
                         st.code(sanitized_sql, language="sql")
                     st.session_state.messages.append({"role": "assistant", "content": fail_msg, "sql": sanitized_sql})
+                    log_query_event(
+                        session_id=st.session_state.session_id,
+                        intent="DATA_QUERY",
+                        question=user_prompt,
+                        generated_sql=sanitized_sql,
+                        guardrail_result="ERROR",
+                        rows_returned=0,
+                        latency_ms=latency_ms,
+                        error=query_error,
+                    )
                 else:
-                    elapsed_time = round(time.time() - t_start, 2)
+                    elapsed_time = round(latency_ms / 1000.0, 2)
                     row_count = len(result_df) if result_df is not None else 0
 
                     success_content = f"✅ Query executed successfully in **{elapsed_time}s** ({row_count} rows returned)."
@@ -645,9 +795,9 @@ if user_prompt:
                                     question=user_prompt,
                                     sql_query=sanitized_sql,
                                     data_summary=summary_preview,
-                                    )
+                                )
                             except Exception as insight_err:
-                                insights_text = f"⚠️ *Note on strategic synthesis: {insight_err}*"
+                                insights_text = f"⚠️ *Note on strategic synthesis: {type(insight_err).__name__}*"
 
                         if insights_text:
                             st.markdown("---")
@@ -668,4 +818,14 @@ if user_prompt:
                         "question": user_prompt,
                         "sql": sanitized_sql,
                     })
+                    log_query_event(
+                        session_id=st.session_state.session_id,
+                        intent="DATA_QUERY",
+                        question=user_prompt,
+                        generated_sql=sanitized_sql,
+                        guardrail_result="PASSED",
+                        rows_returned=row_count,
+                        latency_ms=latency_ms,
+                        error=None,
+                    )
 
